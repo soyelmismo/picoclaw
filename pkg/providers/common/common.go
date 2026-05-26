@@ -374,7 +374,7 @@ func DecodeToolCallArguments(raw json.RawMessage, name string) map[string]any {
 // HandleErrorResponse reads a non-200 response body and returns an appropriate error.
 func HandleErrorResponse(resp *http.Response, apiBase string) error {
 	contentType := resp.Header.Get("Content-Type")
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 256))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if readErr != nil {
 		return fmt.Errorf("failed to read response: %w", readErr)
 	}
@@ -384,7 +384,7 @@ func HandleErrorResponse(resp *http.Response, apiBase string) error {
 	return fmt.Errorf(
 		"API request failed:\n  Status: %d\n  Body:   %s",
 		resp.StatusCode,
-		ResponsePreview(body, 128),
+		ResponsePreview(body, 2048),
 	)
 }
 
@@ -422,7 +422,7 @@ func LooksLikeHTML(body []byte, contentType string) bool {
 
 // WrapHTMLResponseError creates a descriptive error for HTML responses.
 func WrapHTMLResponseError(statusCode int, body []byte, contentType, apiBase string) error {
-	respPreview := ResponsePreview(body, 128)
+	respPreview := ResponsePreview(body, 2048)
 	return fmt.Errorf(
 		"API request failed: %s returned HTML instead of JSON (content-type: %s); check api_base or proxy configuration.\n  Status: %d\n  Body:   %s",
 		apiBase,
