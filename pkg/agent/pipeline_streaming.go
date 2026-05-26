@@ -293,7 +293,7 @@ func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecutio
 		})
 		return false
 	}
-	if exec.activeModelConfig == nil || !exec.activeModelConfig.Streaming.Enabled {
+	if exec.activeModelConfig == nil {
 		modelName := ""
 		modelStreaming := false
 		if exec.activeModelConfig != nil {

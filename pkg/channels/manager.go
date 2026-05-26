@@ -810,6 +810,9 @@ func (s *splitMarkerStreamer) finalizeCompletedPartsLocked(
 				return err
 			}
 			s.current = nil
+			if !isLast {
+				time.Sleep(3000 * time.Millisecond)
+			}
 		}
 		s.completedParts++
 	}

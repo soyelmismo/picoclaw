@@ -146,7 +146,7 @@ func NewProviderWithMaxTokensFieldAndTimeout(
 func (p *Provider) buildRequestBody(
 	messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) map[string]any {
-	model = normalizeModel(model, p.apiBase)
+	model = p.normalizeModel(model)
 
 	requestBody := map[string]any{
 		"model":    model,
@@ -455,11 +455,16 @@ func (p *Provider) Chat(
 	}
 
 	requestBody := p.buildRequestBody(messages, tools, model, options)
+	requestBody["stream"] = true
 
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+
+	logger.DebugCF("provider.openai_compat", "ChatStreamEvents request body",
+		map[string]any{"body": string(jsonData), "api_base": p.apiBase},
+	)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.apiBase+"/chat/completions", bytes.NewReader(jsonData))
 	if err != nil {
@@ -795,18 +800,17 @@ func parseStreamResponse(
 	}, nil
 }
 
-func normalizeModel(model, apiBase string) string {
+func (p *Provider) normalizeModel(model string) string {
 	before, after, ok := strings.Cut(model, "/")
 	if !ok {
 		return model
 	}
 
-	if strings.Contains(strings.ToLower(apiBase), "openrouter.ai") {
-		return model
-	}
-
+	// Only strip prefix if it matches this provider's name.
+	// e.g. "openai/gpt-4o" with provider openai -> "gpt-4o"
+	// but "nvidia/openai/gpt-oss-120b" with provider openrouter stays intact
 	prefix := strings.ToLower(before)
-	if _, ok := stripModelPrefixProviders[prefix]; ok {
+	if prefix == p.providerName {
 		return after
 	}
 
