@@ -139,34 +139,23 @@ func outboundMessageForTurnWithOptions(
 	return msg
 }
 
-func latestUserContent(messages []providers.Message) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		msg := messages[i]
-		if msg.Role != "user" {
-			continue
-		}
-		if content := strings.TrimSpace(msg.Content); content != "" {
-			return content
-		}
-	}
-	return ""
-}
-
 func toolFeedbackExplanationFromResponse(
 	response *providers.LLMResponse,
-	messages []providers.Message,
+	_ []providers.Message,
 ) string {
 	if response == nil {
 		return ""
 	}
-	explanation := strings.TrimSpace(response.Content)
-	if explanation == "" {
-		explanation = toolFeedbackExplanationFromToolCalls(response.ToolCalls)
+	// Model's own text content is the best explanation.
+	if explanation := strings.TrimSpace(response.Content); explanation != "" {
+		return explanation
 	}
-	if explanation == "" {
-		explanation = toolFeedbackExplanationFromMessages(messages)
+	// Check if any tool call has an explicit explanation.
+	if explanation := toolFeedbackExplanationFromToolCalls(response.ToolCalls); explanation != "" {
+		return explanation
 	}
-	return explanation
+	// Generic fallback — never echo the user's full message.
+	return utils.ToolFeedbackContinuationHint
 }
 
 func toolFeedbackExplanationFromToolCalls(toolCalls []providers.ToolCall) string {
@@ -184,26 +173,24 @@ func toolFeedbackExplanationFromToolCalls(toolCalls []providers.ToolCall) string
 func toolFeedbackExplanationForToolCall(
 	response *providers.LLMResponse,
 	toolCall providers.ToolCall,
-	messages []providers.Message,
+	_ []providers.Message,
 ) string {
 	if toolCall.ExtraContent != nil {
 		if explanation := strings.TrimSpace(toolCall.ExtraContent.ToolFeedbackExplanation); explanation != "" {
 			return explanation
 		}
 	}
-	if response == nil {
-		return toolFeedbackExplanationFromMessages(messages)
+
+	// Use model's text response as explanation if available.
+	if response != nil {
+		if explanation := strings.TrimSpace(response.Content); explanation != "" {
+			return explanation
+		}
 	}
 
-	explanation := strings.TrimSpace(response.Content)
-	if explanation == "" {
-		explanation = toolFeedbackExplanationFromMessages(messages)
-	}
-	return explanation
-}
-
-func toolFeedbackExplanationFromMessages(messages []providers.Message) string {
-	return latestUserContent(messages)
+	// Fallback: when the model produced no text, show a generic continuation hint
+	// instead of echoing the user's full message.
+	return utils.ToolFeedbackContinuationHint
 }
 
 func toolFeedbackArgsPreview(args map[string]any, maxLen int) string {

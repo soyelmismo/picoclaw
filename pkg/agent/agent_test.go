@@ -2733,7 +2733,7 @@ func TestToolFeedbackExplanationForToolCall_DoesNotReuseAnotherToolCallExplanati
 	}
 
 	got := toolFeedbackExplanationForToolCall(response, response.ToolCalls[0], messages)
-	want := utils.ToolFeedbackContinuationHint + ": inspect the config and update the example"
+	want := utils.ToolFeedbackContinuationHint
 	if got != want {
 		t.Fatalf("toolFeedbackExplanationForToolCall() = %q, want %q", got, want)
 	}
@@ -2752,9 +2752,9 @@ func TestToolFeedbackExplanationFromResponse_DoesNotUseReasoningContent(t *testi
 	}
 
 	got := toolFeedbackExplanationFromResponse(response, messages)
-	want := utils.ToolFeedbackContinuationHint + ": Inspect README.md and update the config example."
+	want := utils.ToolFeedbackContinuationHint
 	if got != want {
-		t.Fatalf("toolFeedbackExplanationFromResponse() = %q, want latest user content fallback", got)
+		t.Fatalf("toolFeedbackExplanationFromResponse() = %q, want %q", got, want)
 	}
 }
 
@@ -5091,9 +5091,6 @@ func TestProcessMessage_PublishesToolFeedbackWhenEnabled(t *testing.T) {
 		if !strings.Contains(outbound.Content, utils.ToolFeedbackContinuationHint) {
 			t.Fatalf("tool feedback content = %q, want continuation hint fallback", outbound.Content)
 		}
-		if !strings.Contains(outbound.Content, "check tool feedback") {
-			t.Fatalf("tool feedback content = %q, want current user intent fallback", outbound.Content)
-		}
 		if !strings.Contains(outbound.Content, "\"path\":") {
 			t.Fatalf("tool feedback content = %q, want serialized tool arguments", outbound.Content)
 		}
@@ -5345,9 +5342,6 @@ func TestProcessMessage_DoesNotLeakReasoningContentInToolFeedback(t *testing.T) 
 		}
 		if !strings.Contains(outbound.Content, utils.ToolFeedbackContinuationHint) {
 			t.Fatalf("tool feedback content = %q, want continuation hint fallback", outbound.Content)
-		}
-		if !strings.Contains(outbound.Content, "check reasoning fallback") {
-			t.Fatalf("tool feedback content = %q, want current user intent fallback", outbound.Content)
 		}
 		if !strings.Contains(outbound.Content, "\"path\":") {
 			t.Fatalf("tool feedback content = %q, want serialized tool arguments", outbound.Content)

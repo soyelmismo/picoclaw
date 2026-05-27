@@ -258,6 +258,9 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 	// so msg.Content is guaranteed to be within that limit. We still need to
 	// check if HTML expansion pushes it beyond Telegram's 4096-char API limit.
 	replyToID := msg.ReplyToMessageID
+	if isToolFeedback && c.tgCfg != nil && c.tgCfg.TasksDisableQuote {
+		replyToID = ""
+	}
 	var messageIDs []string
 	queue := []string{msg.Content}
 	if isToolFeedback {
