@@ -88,7 +88,7 @@ func isElevenLabsTranscriptionModel(modelCfg *config.ModelConfig) bool {
 	return protocol == "elevenlabs"
 }
 
-func transcriberFromModelConfig(modelCfg *config.ModelConfig) Transcriber {
+func transcriberFromModelConfig(modelCfg *config.ModelConfig, method string) Transcriber {
 	if modelCfg == nil {
 		return nil
 	}
@@ -97,12 +97,17 @@ func transcriberFromModelConfig(modelCfg *config.ModelConfig) Transcriber {
 		_, modelID := providers.ExtractProtocol(modelCfg)
 		return NewElevenLabsTranscriber(modelCfg.APIKey(), modelCfg.APIBase, modelID)
 	}
-	if modelID := whisperModelID(modelCfg); modelID != "" {
-		logger.DebugCF("voice", "Selected WhisperTranscriber", map[string]any{"model_id": modelID, "has_key": modelCfg.APIKey() != ""})
-		return NewWhisperTranscriber(modelCfg)
+
+	// "chat" method forces AudioModelTranscriber (sends audio via chat completion).
+	// "whisper" or empty uses the default detection logic.
+	if method != "chat" {
+		if modelID := whisperModelID(modelCfg); modelID != "" {
+			logger.DebugCF("voice", "Selected WhisperTranscriber", map[string]any{"model_id": modelID, "has_key": modelCfg.APIKey() != ""})
+			return NewWhisperTranscriber(modelCfg)
+		}
 	}
 	if supportsAudioTranscription(modelCfg) {
-		logger.DebugCF("voice", "Selected AudioModelTranscriber", map[string]any{"model": modelCfg.Model, "has_key": modelCfg.APIKey() != ""})
+		logger.DebugCF("voice", "Selected AudioModelTranscriber", map[string]any{"model": modelCfg.Model, "has_key": modelCfg.APIKey() != "", "method": method})
 		return NewAudioModelTranscriber(modelCfg)
 	}
 	return nil
@@ -133,7 +138,7 @@ func DetectTranscriber(cfg *config.Config) Transcriber {
 	if modelName := strings.TrimSpace(cfg.Voice.ModelName); modelName != "" {
 		modelCfg, err := cfg.GetModelConfig(modelName)
 		if err == nil {
-			if tr := transcriberFromModelConfig(modelCfg); tr != nil {
+			if tr := transcriberFromModelConfig(modelCfg, cfg.Voice.TranscriptionMethod); tr != nil {
 				return tr
 			}
 		}
