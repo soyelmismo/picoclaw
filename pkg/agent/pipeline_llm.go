@@ -34,6 +34,28 @@ func (p *Pipeline) CallLLM(
 		exec.messages = resolveMediaRefs(exec.messages, p.MediaStore, maxMediaSize)
 	}
 
+	// Re-check image model routing on every iteration: media may have appeared
+	// from tool results (e.g., load_image tool output) that were just resolved
+	// by resolveMediaRefs above. If media is present and an image model is
+	// configured but not currently active, switch to it for vision support.
+	if hasMediaRefs(exec.messages) && ts.agent.ImageProvider != nil && ts.agent.ImageModel != "" {
+		if exec.activeProvider != ts.agent.ImageProvider {
+			imgCandidates := resolveModelCandidates(p.Cfg, p.Cfg.Agents.Defaults.Provider, ts.agent.ImageModel, ts.agent.ImageFallbacks)
+			exec.activeCandidates = imgCandidates
+			exec.activeModel = resolvedCandidateModel(imgCandidates, ts.agent.ImageModel)
+			exec.activeProvider = ts.agent.ImageProvider
+			exec.llmModelName = resolvedCandidateModelName(imgCandidates, ts.agent.ImageModel)
+			exec.activeModelConfig = resolveActiveModelConfig(
+				p.Cfg,
+				ts.agent.Workspace,
+				imgCandidates,
+				ts.agent.ImageModel,
+				p.Cfg.Agents.Defaults.Provider,
+			)
+			exec.usedLight = false
+		}
+	}
+
 	// PreLLM: graceful terminal handling
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()

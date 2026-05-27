@@ -5790,8 +5790,11 @@ func TestResolveMediaRefs_ImageInjectsPathTag(t *testing.T) {
 	}
 	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize)
 
-	if len(result[0].Media) != 0 {
-		t.Fatalf("expected 0 media (images use path tags), got %d", len(result[0].Media))
+	if len(result[0].Media) != 1 {
+		t.Fatalf("expected 1 media (data URL), got %d", len(result[0].Media))
+	}
+	if !strings.HasPrefix(result[0].Media[0], "data:image/") {
+		t.Fatalf("expected data URL, got %q", result[0].Media[0])
 	}
 	localPath, _, _ := store.ResolveWithMeta(ref)
 	expectedContent := "describe this [image:" + localPath + "]"
@@ -5997,8 +6000,11 @@ func TestResolveMediaRefs_UsesMetaContentType(t *testing.T) {
 	}
 	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize)
 
-	if len(result[0].Media) != 0 {
-		t.Fatalf("expected 0 media (images use path tags), got %d", len(result[0].Media))
+	if len(result[0].Media) != 1 {
+		t.Fatalf("expected 1 media (data URL), got %d", len(result[0].Media))
+	}
+	if !strings.HasPrefix(result[0].Media[0], "data:image/") {
+		t.Fatalf("expected data URL, got %q", result[0].Media[0])
 	}
 	localPath, _, _ := store.ResolveWithMeta(ref)
 	expectedContent := "hi [image:" + localPath + "]"
@@ -6228,8 +6234,11 @@ func TestResolveMediaRefs_MixedImageAndFile(t *testing.T) {
 	}
 	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize)
 
-	if len(result[0].Media) != 0 {
-		t.Fatalf("expected 0 media (all types use path tags), got %d", len(result[0].Media))
+	if len(result[0].Media) != 1 {
+		t.Fatalf("expected 1 media (only image gets data URL), got %d", len(result[0].Media))
+	}
+	if !strings.HasPrefix(result[0].Media[0], "data:image/") {
+		t.Fatalf("expected data URL for image, got %q", result[0].Media[0])
 	}
 	imgLocalPath, _, _ := store.ResolveWithMeta(imgRef)
 	pdfLocalPath, _, _ := store.ResolveWithMeta(fileRef)

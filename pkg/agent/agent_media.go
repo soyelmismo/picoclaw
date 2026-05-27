@@ -104,10 +104,19 @@ func resolveMediaRefs(messages []providers.Message, store media.MediaStore, maxS
 			mime := detectMIME(localPath, meta)
 			pathTags = append(pathTags, buildPathTag(mime, localPath))
 
-			if m.Role == "tool" && strings.HasPrefix(mime, "image/") {
+			if strings.HasPrefix(mime, "image/") {
 				dataURL := encodeImageToDataURL(localPath, mime, info, maxSize)
 				if dataURL != "" {
-					pendingToolImages = append(pendingToolImages, dataURL)
+					if m.Role == "tool" {
+						// Tool images: defer to synthetic user message to preserve
+						// tool-results-must-follow-assistant constraint.
+						pendingToolImages = append(pendingToolImages, dataURL)
+					} else {
+						// User images: attach data URL directly to the message
+						// Media so vision models can see them on the first turn,
+						// without requiring a load_image tool call.
+						resolved = append(resolved, dataURL)
+					}
 				}
 			}
 		}

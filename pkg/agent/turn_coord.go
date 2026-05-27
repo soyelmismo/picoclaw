@@ -436,6 +436,15 @@ func (al *AgentLoop) askSideQuestion(
 	activeCandidates, activeModel, usedLight := al.selectCandidates(agent, question, messages)
 	selectedModelName := sideQuestionModelName(agent, usedLight)
 
+	// If messages contain media and an image model is configured,
+	// switch to the image model for vision-capable handling.
+	if hasMediaRefs(messages) && agent.ImageProvider != nil && agent.ImageModel != "" {
+		activeModel = agent.ImageModel
+		selectedModelName = agent.ImageModel
+		activeCandidates = nil
+		usedLight = false
+	}
+
 	llmOpts := map[string]any{
 		"max_tokens":       agent.MaxTokens,
 		"temperature":      agent.Temperature,
