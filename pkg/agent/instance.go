@@ -33,6 +33,9 @@ type AgentInstance struct {
 	ThinkingLevel             ThinkingLevel
 	ThinkingLevelConfigured   bool
 	ContextWindow             int
+	ImageModel                string
+	ImageProvider             providers.LLMProvider
+	ImageFallbacks            []string
 	SummarizeModel            string
 	SummarizeProvider         providers.LLMProvider
 	SummarizeMessageThreshold int
@@ -222,6 +225,32 @@ func NewAgentInstance(
 		summarizeModel = model
 	}
 
+	// Resolve image model if configured separately
+	var imageProvider providers.LLMProvider
+	var imageFallbacks []string
+	imageModel := defaults.ImageModel
+	if imageModel != "" {
+		imCfg, err := resolvedModelConfig(cfg, imageModel, workspace)
+		if err != nil {
+			logger.WarnCF("agent", "Image model config resolution failed; using primary model",
+				map[string]any{"image_model": imageModel, "error": err.Error()})
+			imageModel = ""
+		} else {
+			ip, _, err := providers.CreateProviderFromConfig(imCfg)
+			if err != nil {
+				logger.WarnCF("agent", "Image model provider init failed; using primary model",
+					map[string]any{"image_model": imageModel, "error": err.Error()})
+				imageModel = ""
+			} else {
+				imageProvider = ip
+				imageFallbacks = defaults.ImageModelFallbacks
+				if imageFallbacks == nil {
+					imageFallbacks = []string{}
+				}
+			}
+		}
+	}
+
 	// Resolve fallback candidates
 	candidates := resolveModelCandidates(cfg, defaults.Provider, model, fallbacks)
 
@@ -280,6 +309,9 @@ func NewAgentInstance(
 		ThinkingLevel:             thinkingLevel,
 		ThinkingLevelConfigured:   thinkingLevelConfigured,
 		ContextWindow:             contextWindow,
+		ImageModel:                imageModel,
+		ImageProvider:             imageProvider,
+		ImageFallbacks:            imageFallbacks,
 		SummarizeModel:            summarizeModel,
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,

@@ -130,6 +130,18 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	}
 	activeModelName = resolvedCandidateModelName(activeCandidates, activeModelName)
 
+	// If messages contain media (images) and an image model is configured,
+	// switch to the image model/provider for vision-capable handling.
+	hasMedia := hasMediaRefs(messages)
+	if hasMedia && ts.agent.ImageProvider != nil && ts.agent.ImageModel != "" {
+		imgCandidates := resolveModelCandidates(p.Cfg, p.Cfg.Agents.Defaults.Provider, ts.agent.ImageModel, ts.agent.ImageFallbacks)
+		activeCandidates = imgCandidates
+		activeModel = resolvedCandidateModel(imgCandidates, ts.agent.ImageModel)
+		activeProvider = ts.agent.ImageProvider
+		activeModelName = resolvedCandidateModelName(imgCandidates, ts.agent.ImageModel)
+		usedLight = false
+	}
+
 	exec := newTurnExecution(
 		ts.agent,
 		ts.opts,
