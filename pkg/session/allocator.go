@@ -101,6 +101,20 @@ func buildSessionScope(input AllocationInput) SessionScope {
 			}
 			dimensions = append(dimensions, "sender")
 			values["sender"] = senderID
+		case "user":
+			userID := CanonicalSessionIdentityID(
+				inbound.Channel,
+				inbound.SenderID,
+				input.SessionPolicy.IdentityLinks,
+			)
+			if userID == "" {
+				continue
+			}
+			dimensions = append(dimensions, "user")
+			values["user"] = userID
+			// Override channel to unify sessions across different channels
+			// for the same canonical user identity.
+			scope.Channel = "user"
 		}
 	}
 

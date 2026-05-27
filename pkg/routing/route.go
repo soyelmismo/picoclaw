@@ -119,7 +119,7 @@ func normalizeSessionDimensions(dimensions []string) []string {
 	for _, dimension := range dimensions {
 		dimension = strings.ToLower(strings.TrimSpace(dimension))
 		switch dimension {
-		case "space", "chat", "topic", "sender":
+		case "space", "chat", "topic", "sender", "user":
 		default:
 			continue
 		}
