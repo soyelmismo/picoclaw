@@ -35,3 +35,11 @@ func SplitByMarker(content string) []string {
 	}
 	return result
 }
+
+// StripMarker removes all occurrences of MessageSplitMarker from content.
+// This is used to clean up leaked markers from LLM output in paths where
+// marker-based splitting is not intended (e.g., after tool call extraction,
+// or when SplitOnMarker is disabled but the model still produces markers).
+func StripMarker(content string) string {
+	return strings.ReplaceAll(content, MessageSplitMarker, "")
+}

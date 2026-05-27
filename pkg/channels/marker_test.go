@@ -125,6 +125,52 @@ func TestMarkerAndLengthSplitIntegration(t *testing.T) {
 	}
 }
 
+func TestStripMarker_Basic(t *testing.T) {
+	content := "Hello <|[SPLIT]|>World"
+	result := StripMarker(content)
+	if result != "Hello World" {
+		t.Errorf("Expected 'Hello World', got %q", result)
+	}
+}
+
+func TestStripMarker_Multiple(t *testing.T) {
+	content := "A<|[SPLIT]|>B<|[SPLIT]|>C"
+	result := StripMarker(content)
+	if result != "ABC" {
+		t.Errorf("Expected 'ABC', got %q", result)
+	}
+}
+
+func TestStripMarker_LeadingTrailing(t *testing.T) {
+	content := "<|[SPLIT]|>Hello World<|[SPLIT]|>"
+	result := StripMarker(content)
+	if result != "Hello World" {
+		t.Errorf("Expected 'Hello World', got %q", result)
+	}
+}
+
+func TestStripMarker_NoMarker(t *testing.T) {
+	content := "Hello World"
+	result := StripMarker(content)
+	if result != "Hello World" {
+		t.Errorf("Expected 'Hello World', got %q", result)
+	}
+}
+
+func TestStripMarker_Empty(t *testing.T) {
+	result := StripMarker("")
+	if result != "" {
+		t.Errorf("Expected empty string, got %q", result)
+	}
+}
+
+func TestStripMarker_OnlyMarker(t *testing.T) {
+	result := StripMarker("<|[SPLIT]|>")
+	if result != "" {
+		t.Errorf("Expected empty string, got %q", result)
+	}
+}
+
 // TestMarkerSplitPreservesCodeBlockIntegrity tests that marker split preserves code block boundaries
 func TestMarkerSplitPreservesCodeBlockIntegrity(t *testing.T) {
 	content := "Hello <|[SPLIT]|>```go\npackage main\n```<|[SPLIT]|>World"

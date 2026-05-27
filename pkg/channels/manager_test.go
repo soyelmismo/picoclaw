@@ -2499,8 +2499,8 @@ func TestRunWorker_ToolFeedbackSkipsMarkerSplitting(t *testing.T) {
 	if len(received) != 1 {
 		t.Fatalf("len(received) = %d, want 1", len(received))
 	}
-	if received[0] != content {
-		t.Fatalf("received[0] = %q, want %q", received[0], content)
+	if received[0] != "🔧 `read_file`\nRead current config first.Then update the example." {
+		t.Fatalf("received[0] = %q, want marker stripped", received[0])
 	}
 }
 

@@ -1433,9 +1433,15 @@ func (m *Manager) runWorker(ctx context.Context, name string, w *channelWorker) 
 				}
 			}
 
-			// Step 2: Fallback to length-based splitting if no chunks from marker
+			// Step 2: Fallback to length-based splitting if no chunks from marker.
+		// Always strip leaked markers from content so they never reach the user.
 			if len(chunks) == 0 {
-				chunks = splitOutboundMessageContent(msg, maxLen)
+				cleanedContent := StripMarker(msg.Content)
+			cleanedContent = strings.TrimSpace(cleanedContent)
+			if cleanedContent != "" {
+				msg.Content = cleanedContent
+			}
+			chunks = splitOutboundMessageContent(msg, maxLen)
 			}
 
 			// Step 3: Send all chunks

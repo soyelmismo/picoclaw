@@ -619,13 +619,13 @@ func (p *Pipeline) CallLLM(
 	}
 	logger.DebugCF("agent", "LLM response", llmResponseFields)
 
-	// Extract tool calls that some models embed as JSON in the Content field
-	// instead of using the proper tool_calls API parameter (e.g. DeepSeek, MiMo).
+	// Extract tool calls that some models embed as text in the Content field
+	// instead of (or in addition to) the proper tool_calls API parameter.
+	// Bracket formats like [tool_use: name, args: {...}] and raw JSON objects
+	// are both handled. Duplicates against existing tool_calls are removed.
 	// This must happen after the AfterLLM hook (which may have modified the response)
 	// but before the tool-call / direct-response decision below.
-	if len(exec.response.ToolCalls) == 0 {
-		exec.response = extractToolCallsFromContent(exec.response)
-	}
+	exec.response = extractToolCallsFromContent(exec.response)
 
 	// No-tool-call path: steering check and direct response
 	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal {
