@@ -44,15 +44,15 @@ func TestShowListHandlers_ChannelPolicy(t *testing.T) {
 		t.Fatalf("whatsapp /show reply=%q, want=%q", whatsappReply, "Current Channel: whatsapp")
 	}
 
-	passthrough := ex.Execute(context.Background(), Request{
+	fooResult := ex.Execute(context.Background(), Request{
 		Channel: "whatsapp",
 		Text:    "/foo",
 	})
-	if passthrough.Outcome != OutcomePassthrough {
-		t.Fatalf("whatsapp /foo outcome=%v, want=%v", passthrough.Outcome, OutcomePassthrough)
+	if fooResult.Outcome != OutcomeHandled {
+		t.Fatalf("whatsapp /foo outcome=%v, want=%v", fooResult.Outcome, OutcomeHandled)
 	}
-	if passthrough.Command != "foo" {
-		t.Fatalf("whatsapp /foo command=%q, want=%q", passthrough.Command, "foo")
+	if fooResult.Command != "foo" {
+		t.Fatalf("whatsapp /foo command=%q, want=%q", fooResult.Command, "foo")
 	}
 }
 

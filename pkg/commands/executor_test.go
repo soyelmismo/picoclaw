@@ -17,13 +17,16 @@ func TestExecutor_RegisteredWithoutHandler_ReturnsPassthrough(t *testing.T) {
 	}
 }
 
-func TestExecutor_UnknownSlashCommand_ReturnsPassthrough(t *testing.T) {
+func TestExecutor_UnknownSlashCommand_ReturnsHandled(t *testing.T) {
 	defs := []Definition{{Name: "show"}}
 	ex := NewExecutor(NewRegistry(defs), nil)
 
 	res := ex.Execute(context.Background(), Request{Channel: "telegram", Text: "/unknown"})
-	if res.Outcome != OutcomePassthrough {
-		t.Fatalf("outcome=%v, want=%v", res.Outcome, OutcomePassthrough)
+	if res.Outcome != OutcomeHandled {
+		t.Fatalf("outcome=%v, want=%v", res.Outcome, OutcomeHandled)
+	}
+	if res.Command != "unknown" {
+		t.Fatalf("command=%q, want=%q", res.Command, "unknown")
 	}
 }
 

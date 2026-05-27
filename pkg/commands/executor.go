@@ -44,7 +44,9 @@ func (e *Executor) Execute(ctx context.Context, req Request) ExecuteResult {
 
 	def, found := e.reg.Lookup(cmdName)
 	if !found {
-		return ExecuteResult{Outcome: OutcomePassthrough, Command: cmdName}
+		// Unknown command — silently ignore. This prevents the agent LLM
+		// from responding to commands intended for other bots in group chats.
+		return ExecuteResult{Outcome: OutcomeHandled, Command: cmdName}
 	}
 
 	return e.executeDefinition(ctx, req, def)
