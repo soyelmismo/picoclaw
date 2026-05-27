@@ -260,6 +260,25 @@ func (c *BaseChannel) IsAllowedSender(sender bus.SenderInfo) bool {
 	return false
 }
 
+// IsChatAllowed checks whether a chat/platform ID is in the allow-list.
+// Used by groups_allow_any: allows any member of an allowed group chat.
+func (c *BaseChannel) IsChatAllowed(id string) bool {
+	if len(c.allowList) == 0 {
+		return true
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	for _, allowed := range c.allowList {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "*" || allowed == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *BaseChannel) HandleMessageWithContext(
 	ctx context.Context,
 	deliveryChatID, content string,

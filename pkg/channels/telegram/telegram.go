@@ -888,10 +888,22 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 
 	// check allowlist to avoid downloading attachments for rejected users
 	if !c.IsAllowedSender(sender) {
-		logger.DebugCF("telegram", "Message rejected by allowlist", map[string]any{
-			"user_id": platformID,
-		})
-		return nil
+		// If groups_allow_any is enabled and this is a group/supergroup,
+		// check if the chat ID is in allow_from instead of the sender.
+		if c.bc.GroupsAllowAny && message.Chat.Type != telego.ChatTypePrivate {
+			chatIDStr := fmt.Sprintf("%d", message.Chat.ID)
+			if !c.IsChatAllowed(chatIDStr) {
+				logger.DebugCF("telegram", "Group message rejected: chat not in allow_from", map[string]any{
+					"chat_id": chatIDStr,
+				})
+				return nil
+			}
+		} else {
+			logger.DebugCF("telegram", "Message rejected by allowlist", map[string]any{
+				"user_id": platformID,
+			})
+			return nil
+		}
 	}
 
 	chatID := message.Chat.ID

@@ -223,6 +223,7 @@ type Channel struct {
 	Enabled            bool                `json:"enabled"                 yaml:"-"`
 	Type               string              `json:"type"                    yaml:"-"`
 	AllowFrom          FlexibleStringSlice `json:"allow_from,omitempty"    yaml:"-"`
+	GroupsAllowAny     bool                `json:"groups_allow_any,omitempty" yaml:"-"`
 	ReasoningChannelID string              `json:"reasoning_channel_id"    yaml:"-"`
 	GroupTrigger       GroupTriggerConfig  `json:"group_trigger,omitempty" yaml:"-"`
 	Typing             TypingConfig        `json:"typing,omitempty"        yaml:"-"`
