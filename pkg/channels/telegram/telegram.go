@@ -46,6 +46,9 @@ var (
 
 const defaultMediaGroupDelay = 500 * time.Millisecond
 
+// maxTelegramMsg is Telegram's hard limit on message text length (runes).
+const maxTelegramMsg = 4096
+
 type TelegramChannel struct {
 	*channels.BaseChannel
 	bot       *telego.Bot
@@ -1630,31 +1633,31 @@ func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
 			// Rate-limit: wait 1s between chunks to avoid 429
 			time.Sleep(time.Second)
 		}
-		htmlContent := markdownToTelegramHTML(chunk)
-		tgMsg := tu.Message(tu.ID(s.chatID), htmlContent)
-		tgMsg.MessageThreadID = s.threadID
+		if err := s.finalizeChunk(ctx, chunk); err != nil {
+			return err
+		}
+	}
+	s.Cancel(ctx)
+	return nil
+}
 
-		// If HTML rendered version fits, send with HTML parsing
-		if len([]rune(htmlContent)) <= maxTelegramMsg {
-			tgMsg.ParseMode = telego.ModeHTML
-			if _, err := s.bot.SendMessage(ctx, tgMsg); err != nil {
-				// Fallback to plain text
-				tgMsg.ParseMode = ""
-				tgMsg.Text = chunk
-				if _, err = s.bot.SendMessage(ctx, tgMsg); err != nil {
-					logger.ErrorCF("telegram", "Finalize failed after HTML and plain-text attempts", map[string]any{
-						"chat_id": s.chatID,
-						"error":   err.Error(),
-						"len":     len(chunk),
-					})
-					return fmt.Errorf("telegram finalize: %w", err)
-				}
-			}
-		} else {
-			// HTML too long, send as plain text (no parsing)
+// finalizeChunk sends a single chunk with retry on 429 rate limits.
+func (s *telegramStreamer) finalizeChunk(ctx context.Context, chunk string) error {
+	const maxRateLimitRetries = 3
+
+	htmlContent := markdownToTelegramHTML(chunk)
+	tgMsg := tu.Message(tu.ID(s.chatID), htmlContent)
+	tgMsg.MessageThreadID = s.threadID
+
+	// If HTML rendered version fits, send with HTML parsing
+	if len([]rune(htmlContent)) <= maxTelegramMsg {
+		tgMsg.ParseMode = telego.ModeHTML
+		if err := s.sendWith429Retry(ctx, tgMsg, maxRateLimitRetries); err != nil {
+			// Fallback to plain text
 			tgMsg.ParseMode = ""
-			if _, err := s.bot.SendMessage(ctx, tgMsg); err != nil {
-				logger.ErrorCF("telegram", "Finalize failed (plain text)", map[string]any{
+			tgMsg.Text = chunk
+			if err = s.sendWith429Retry(ctx, tgMsg, maxRateLimitRetries); err != nil {
+				logger.ErrorCF("telegram", "Finalize failed after HTML and plain-text attempts", map[string]any{
 					"chat_id": s.chatID,
 					"error":   err.Error(),
 					"len":     len(chunk),
@@ -1662,9 +1665,86 @@ func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
 				return fmt.Errorf("telegram finalize: %w", err)
 			}
 		}
+	} else {
+		// HTML too long, send as plain text (no parsing)
+		tgMsg.ParseMode = ""
+		if err := s.sendWith429Retry(ctx, tgMsg, maxRateLimitRetries); err != nil {
+			logger.ErrorCF("telegram", "Finalize failed (plain text)", map[string]any{
+				"chat_id": s.chatID,
+				"error":   err.Error(),
+				"len":     len(chunk),
+			})
+			return fmt.Errorf("telegram finalize: %w", err)
+		}
 	}
-	s.Cancel(ctx)
 	return nil
+}
+
+// sendWith429Retry sends a message and retries on 429 rate-limit errors,
+// respecting the retry-after duration from the API response.
+func (s *telegramStreamer) sendWith429Retry(ctx context.Context, tgMsg *telego.SendMessageParams, maxRetries int) error {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		_, err := s.bot.SendMessage(ctx, tgMsg)
+		if err == nil {
+			return nil
+		}
+
+		retryAfter := parseRetryAfter(err)
+		if retryAfter <= 0 || attempt >= maxRetries {
+			return err
+		}
+
+		logger.WarnCF("telegram", "Rate-limited, retrying after delay", map[string]any{
+			"chat_id":     s.chatID,
+			"retry_after": retryAfter,
+			"attempt":     attempt + 1,
+		})
+
+		select {
+		case <-time.After(retryAfter):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// parseRetryAfter extracts the retry-after duration from a Telegram API 429 error.
+// Returns 0 if the error is not a rate-limit or the value cannot be parsed.
+func parseRetryAfter(err error) time.Duration {
+	if err == nil {
+		return 0
+	}
+	errStr := strings.ToLower(err.Error())
+	if !strings.Contains(errStr, "429") && !strings.Contains(errStr, "too many requests") && !strings.Contains(errStr, "retry after") {
+		return 0
+	}
+
+	// Try to find "retry after N" in the error string
+	idx := strings.Index(errStr, "retry after")
+	if idx < 0 {
+		return 0
+	}
+	afterPart := errStr[idx+len("retry after"):]
+	afterPart = strings.TrimSpace(afterPart)
+
+	// Take the first number found
+	var numStr string
+	for _, c := range afterPart {
+		if c >= '0' && c <= '9' {
+			numStr += string(c)
+		} else if numStr != "" {
+			break
+		}
+	}
+	if numStr == "" {
+		return 0
+	}
+	seconds, err := strconv.Atoi(numStr)
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // splitMessageSafe splits a string into chunks of at most maxLen runes,

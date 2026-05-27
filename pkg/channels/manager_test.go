@@ -864,7 +864,7 @@ func TestWorkerRateLimiter(t *testing.T) {
 
 func TestNewChannelWorker_DefaultRate(t *testing.T) {
 	ch := &mockChannel{}
-	w := newChannelWorker("unknown_channel", ch, "unknown_channel")
+	w := newChannelWorker(ch, "unknown_channel")
 
 	if w.limiter == nil {
 		t.Fatal("expected limiter to be non-nil")
@@ -878,7 +878,7 @@ func TestNewChannelWorker_ConfiguredRate(t *testing.T) {
 	ch := &mockChannel{}
 
 	for channelType, expectedRate := range channelRateConfig {
-		w := newChannelWorker(channelType, ch, channelType)
+		w := newChannelWorker(ch, channelType)
 		if w.limiter.Limit() != rate.Limit(expectedRate) {
 			t.Fatalf("channel %s: expected rate %v, got %v", channelType, expectedRate, w.limiter.Limit())
 		}
@@ -3036,7 +3036,7 @@ func TestManager_PlaceholderConsumedByResponse(t *testing.T) {
 			return nil
 		},
 	}
-	worker := newChannelWorker("mock", mockCh, "mock")
+	worker := newChannelWorker(mockCh, "mock")
 	mgr.channels["mock"] = mockCh
 	mgr.workers["mock"] = worker
 

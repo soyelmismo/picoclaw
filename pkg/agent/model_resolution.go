@@ -37,7 +37,7 @@ func effectiveDefaultProvider(defaultProvider string) string {
 	return providers.NormalizeProvider(defaultProvider)
 }
 
-func modelProviderAndIDForResolution(defaultProvider string, mc *config.ModelConfig) (provider string, modelID string) {
+func modelProviderAndIDForResolution(mc *config.ModelConfig) (provider string, modelID string) {
 	if mc == nil {
 		return "", ""
 	}
@@ -45,7 +45,6 @@ func modelProviderAndIDForResolution(defaultProvider string, mc *config.ModelCon
 }
 
 func cloneModelConfigForResolution(
-	defaultProvider string,
 	mc *config.ModelConfig,
 	workspace string,
 ) *config.ModelConfig {
@@ -60,14 +59,13 @@ func cloneModelConfigForResolution(
 }
 
 func candidateFromModelConfig(
-	defaultProvider string,
 	mc *config.ModelConfig,
 ) (providers.FallbackCandidate, bool) {
 	if mc == nil {
 		return providers.FallbackCandidate{}, false
 	}
 
-	protocol, modelID := modelProviderAndIDForResolution(defaultProvider, mc)
+	protocol, modelID := modelProviderAndIDForResolution(mc)
 	if strings.TrimSpace(modelID) == "" {
 		return providers.FallbackCandidate{}, false
 	}
@@ -110,7 +108,7 @@ func lookupModelConfigByRef(cfg *config.Config, raw string, defaultProvider ...s
 		if fullModel == "" {
 			continue
 		}
-		protocol, modelID := modelProviderAndIDForResolution(fallbackProvider, mc)
+		protocol, modelID := modelProviderAndIDForResolution(mc)
 		if fullModel == raw {
 			return mc
 		}
@@ -139,7 +137,7 @@ func resolveModelCandidate(
 	defaultProvider = effectiveDefaultProvider(defaultProvider)
 
 	if mc := lookupModelConfigByRef(cfg, raw, defaultProvider); mc != nil {
-		return candidateFromModelConfig(defaultProvider, mc)
+		return candidateFromModelConfig(mc)
 	}
 
 	ref := providers.ParseModelRef(raw, defaultProvider)
@@ -249,9 +247,9 @@ func resolveActiveModelConfig(
 				if mc == nil || modelConfigIdentityKey(mc) != identityKey {
 					continue
 				}
-				protocol, modelID := modelProviderAndIDForResolution(defaultProvider, mc)
+				protocol, modelID := modelProviderAndIDForResolution(mc)
 				if providers.ModelKey(protocol, modelID) == providers.ModelKey(candidate.Provider, candidate.Model) {
-					return cloneModelConfigForResolution(defaultProvider, mc, workspace)
+					return cloneModelConfigForResolution(mc, workspace)
 				}
 			}
 		}
@@ -259,16 +257,16 @@ func resolveActiveModelConfig(
 			if mc == nil {
 				continue
 			}
-			protocol, modelID := modelProviderAndIDForResolution(defaultProvider, mc)
+			protocol, modelID := modelProviderAndIDForResolution(mc)
 			if providers.ModelKey(protocol, modelID) == providers.ModelKey(candidate.Provider, candidate.Model) {
-				return cloneModelConfigForResolution(defaultProvider, mc, workspace)
+				return cloneModelConfigForResolution(mc, workspace)
 			}
 		}
 		return nil
 	}
 
 	if mc := lookupModelConfigByRef(cfg, activeModel, defaultProvider); mc != nil {
-		return cloneModelConfigForResolution(defaultProvider, mc, workspace)
+		return cloneModelConfigForResolution(mc, workspace)
 	}
 
 	return nil

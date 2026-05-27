@@ -157,7 +157,6 @@ type turnExecution struct {
 
 // newTurnExecution creates a turnExecution initialized from turnState and options.
 func newTurnExecution(
-	agent *AgentInstance,
 	opts processOptions,
 	history []providers.Message,
 	summary string,

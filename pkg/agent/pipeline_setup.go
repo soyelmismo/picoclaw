@@ -143,7 +143,6 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	}
 
 	exec := newTurnExecution(
-		ts.agent,
 		ts.opts,
 		history,
 		summary,

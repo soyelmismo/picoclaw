@@ -52,25 +52,6 @@ const (
 	defaultStreamingReadIdleTimeout = 5 * time.Minute
 )
 
-var stripModelPrefixProviders = map[string]struct{}{
-	"litellm":     {},
-	"venice":      {},
-	"moonshot":    {},
-	"nvidia":      {},
-	"groq":        {},
-	"ollama":      {},
-	"deepseek":    {},
-	"google":      {},
-	"openrouter":  {},
-	"siliconflow": {},
-	"zhipu":       {},
-	"mistral":     {},
-	"vivgrid":     {},
-	"minimax":     {},
-	"novita":      {},
-	"lmstudio":    {},
-}
-
 func WithMaxTokensField(maxTokensField string) Option {
 	return func(p *Provider) {
 		p.maxTokensField = maxTokensField

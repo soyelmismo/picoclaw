@@ -1234,39 +1234,30 @@ func TestProviderChat_AcceptsNumericOptionTypes(t *testing.T) {
 }
 
 func TestNormalizeModel_UsesAPIBase(t *testing.T) {
-	if got := normalizeModel("deepseek/deepseek-chat", "https://api.deepseek.com/v1"); got != "deepseek-chat" {
-		t.Fatalf("normalizeModel(deepseek) = %q, want %q", got, "deepseek-chat")
+	tests := []struct {
+		name     string
+		apiBase  string
+		model    string
+		expected string
+	}{
+		{"deepseek", "https://api.deepseek.com/v1", "deepseek/deepseek-chat", "deepseek-chat"},
+		{"lmstudio", "http://localhost:1234/v1", "lmstudio/openai/gpt-oss-20b", "openai/gpt-oss-20b"},
+		{"venice", "https://api.venice.ai/api/v1", "venice/venice-uncensored", "venice-uncensored"},
+		{"openrouter", "https://openrouter.ai/api/v1", "openrouter/auto", "openrouter/auto"},
+		{"vivgrid", "https://api.vivgrid.com/v1", "vivgrid/managed", "managed"},
+		{"vivgrid auto", "https://api.vivgrid.com/v1", "vivgrid/auto", "auto"},
+		{"siliconflow", "https://api.siliconflow.cn/v1", "siliconflow/deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-V3"},
+		{"novita", "https://api.novita.ai/openai", "novita/deepseek/deepseek-v3.2", "deepseek/deepseek-v3.2"},
 	}
-	if got := normalizeModel("lmstudio/openai/gpt-oss-20b", "http://localhost:1234/v1"); got != "openai/gpt-oss-20b" {
-		t.Fatalf("normalizeModel(lmstudio) = %q, want %q", got, "openai/gpt-oss-20b")
-	}
-	if got := normalizeModel("venice/venice-uncensored", "https://api.venice.ai/api/v1"); got != "venice-uncensored" {
-		t.Fatalf("normalizeModel(venice) = %q, want %q", got, "venice-uncensored")
-	}
-	if got := normalizeModel("openrouter/auto", "https://openrouter.ai/api/v1"); got != "openrouter/auto" {
-		t.Fatalf("normalizeModel(openrouter) = %q, want %q", got, "openrouter/auto")
-	}
-	if got := normalizeModel("vivgrid/managed", "https://api.vivgrid.com/v1"); got != "managed" {
-		t.Fatalf("normalizeModel(vivgrid) = %q, want %q", got, "managed")
-	}
-	if got := normalizeModel("vivgrid/auto", "https://api.vivgrid.com/v1"); got != "auto" {
-		t.Fatalf("normalizeModel(vivgrid auto) = %q, want %q", got, "auto")
-	}
-	if got := normalizeModel(
-		"siliconflow/deepseek-ai/DeepSeek-V3",
-		"https://api.siliconflow.cn/v1",
-	); got != "deepseek-ai/DeepSeek-V3" {
-		t.Fatalf(
-			"normalizeModel(siliconflow) = %q, want %q",
-			got,
-			"deepseek-ai/DeepSeek-V3",
-		)
-	}
-	if got := normalizeModel(
-		"novita/deepseek/deepseek-v3.2",
-		"https://api.novita.ai/openai",
-	); got != "deepseek/deepseek-v3.2" {
-		t.Fatalf("normalizeModel(novita) = %q, want %q", got, "deepseek/deepseek-v3.2")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewProvider("key", tt.apiBase, "")
+			got := p.normalizeModel(tt.model)
+			if got != tt.expected {
+				t.Fatalf("normalizeModel(%s) = %q, want %q", tt.model, got, tt.expected)
+			}
+		})
 	}
 }
 

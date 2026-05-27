@@ -430,6 +430,13 @@ func (ph *ProcessHook) readLoop(stdout io.Reader) {
 			close(respCh)
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		logger.WarnCF("hooks", "Process hook stdout scanner error", map[string]any{
+			"hook":  ph.name,
+			"error": err.Error(),
+		})
+	}
 }
 
 func (ph *ProcessHook) readStderr(stderr io.Reader) {
@@ -439,6 +446,13 @@ func (ph *ProcessHook) readStderr(stderr io.Reader) {
 		logger.WarnCF("hooks", "Process hook stderr", map[string]any{
 			"hook":   ph.name,
 			"stderr": scanner.Text(),
+		})
+	}
+
+	if err := scanner.Err(); err != nil {
+		logger.WarnCF("hooks", "Process hook stderr scanner error", map[string]any{
+			"hook":  ph.name,
+			"error": err.Error(),
 		})
 	}
 }

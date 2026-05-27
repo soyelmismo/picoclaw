@@ -178,7 +178,6 @@ func (p *Pipeline) CallLLM(
 					candidateProvider, err := providerForFallbackCandidate(
 						ts.agent,
 						exec.activeProvider,
-						exec.activeCandidates,
 						candidate.Provider,
 						candidate.Model,
 					)
@@ -751,7 +750,6 @@ func (p *Pipeline) applyBeforeLLMModelRewrite(ts *turnState, exec *turnExecution
 func providerForFallbackCandidate(
 	agent *AgentInstance,
 	activeProvider providers.LLMProvider,
-	activeCandidates []providers.FallbackCandidate,
 	provider string,
 	model string,
 ) (providers.LLMProvider, error) {

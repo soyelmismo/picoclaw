@@ -1216,7 +1216,7 @@ func (m *Manager) StartAll(ctx context.Context) error {
 				channelType = bc.Type
 			}
 		}
-		w := newChannelWorker(name, channel, channelType)
+		w := newChannelWorker(channel, channelType)
 		m.workers[name] = w
 		go m.runWorker(dispatchCtx, name, w)
 		go m.runMediaWorker(dispatchCtx, name, w)
@@ -1380,7 +1380,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 
 // newChannelWorker creates a channelWorker with a rate limiter configured
 // for the given channel type. channelType is used for rate limit lookup.
-func newChannelWorker(name string, ch Channel, channelType string) *channelWorker {
+func newChannelWorker(ch Channel, channelType string) *channelWorker {
 	rateVal := float64(defaultRateLimit)
 	if r, ok := channelRateConfig[channelType]; ok {
 		rateVal = r
@@ -1917,7 +1917,7 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 				channelType = bc.Type
 			}
 		}
-		w := newChannelWorker(name, channel, channelType)
+		w := newChannelWorker(channel, channelType)
 		m.workers[name] = w
 		go m.runWorker(dispatchCtx, name, w)
 		go m.runMediaWorker(dispatchCtx, name, w)
