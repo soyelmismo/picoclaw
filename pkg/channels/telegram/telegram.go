@@ -965,6 +965,16 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 	if message.Chat.Type != "private" {
 		isMentioned = c.isBotMentioned(message)
 
+		// If the bot was "mentioned" via a bare BotCommand (no @botname)
+		// that matches a configured group trigger prefix, don't count it
+		// as a mention. This lets ShouldRespondInGroup strip the prefix
+		// via the prefix-matching path, so the content reaches the agent
+		// as a normal message rather than being intercepted by the command
+		// executor as an unknown command.
+		if isMentioned && c.bareBotCommandMatchesPrefix(message) {
+			isMentioned = false
+		}
+
 		// Reply to the bot's own message counts as an implicit mention,
 		// even without @bot or /command.
 		if !isMentioned && message.ReplyToMessage != nil {
@@ -1428,6 +1438,47 @@ func (c *TelegramChannel) isBotMentioned(message *telego.Message) bool {
 			}
 		case telego.EntityTypeBotCommand:
 			if isBotCommandEntityForThisBot(entityText, botUsername) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// bareBotCommandMatchesPrefix checks whether a bare BotCommand entity (no
+// @botname) matches a configured group trigger prefix. When this is true,
+// the message should be handled by ShouldRespondInGroup's prefix-matching
+// path instead of being treated as a direct mention, so the prefix gets
+// stripped and the content flows to the agent naturally.
+func (c *TelegramChannel) bareBotCommandMatchesPrefix(message *telego.Message) bool {
+	if c.bc == nil {
+		return false
+	}
+	prefixes := c.bc.GroupTrigger.Prefixes
+	if len(prefixes) == 0 {
+		return false
+	}
+
+	text, entities := telegramEntityTextAndList(message)
+	if text == "" || len(entities) == 0 {
+		return false
+	}
+	runes := []rune(text)
+
+	for _, entity := range entities {
+		if entity.Type != telego.EntityTypeBotCommand {
+			continue
+		}
+		entityText, ok := telegramEntityText(runes, entity)
+		if !ok {
+			continue
+		}
+		// Only match bare commands — commands with @botname explicitly target another bot.
+		if strings.Contains(entityText, "@") {
+			continue
+		}
+		for _, prefix := range prefixes {
+			if prefix != "" && strings.HasPrefix(entityText, prefix) {
 				return true
 			}
 		}
