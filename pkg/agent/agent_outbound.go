@@ -92,6 +92,24 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		})
 }
 
+// dismissPlaceholderForMessage clears the placeholder (💭) that the channel
+// showed before the message was processed. This is needed when a command is
+// silently handled without producing any response, so the placeholder doesn't
+// stay on screen indefinitely.
+func (al *AgentLoop) dismissPlaceholderForMessage(ctx context.Context, msg bus.InboundMessage) {
+	if al.channelManager == nil {
+		return
+	}
+	dismissCtx, dismissCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer dismissCancel()
+	al.channelManager.DismissToolFeedback(
+		dismissCtx,
+		msg.Channel,
+		msg.ChatID,
+		&msg.Context,
+	)
+}
+
 func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string) {
 	if al.channelManager == nil {
 		return ""

@@ -202,6 +202,12 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	// context-dependent commands check their own Runtime fields and report
 	// "unavailable" when the required capability is nil.
 	if response, handled := al.handleCommand(ctx, msg, agent, &opts); handled {
+		// If the command was silently handled (no reply), dismiss the
+		// placeholder that the channel showed before the message was
+		// processed — otherwise 💭 stays on screen forever.
+		if response == "" {
+			al.dismissPlaceholderForMessage(ctx, msg)
+		}
 		return response, nil
 	}
 

@@ -61,6 +61,7 @@ type TelegramChannel struct {
 	tgCfg     *config.TelegramSettings
 	progress  *channels.ToolFeedbackAnimator
 
+	cmdReg            *commands.Registry
 	registerFunc      func(context.Context, []commands.Definition) error
 	commandRegDelayFn func(int) time.Duration
 	commandRegCancel  context.CancelFunc
@@ -132,6 +133,7 @@ func NewTelegramChannel(
 		BaseChannel: base,
 		bot:         bot,
 		bc:          bc,
+		cmdReg:      commands.NewRegistry(commands.BuiltinDefinitions()),
 		chatIDs:     make(map[string]int64),
 		tgCfg:       telegramCfg,
 
@@ -1060,6 +1062,17 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 		inboundCtx.ReplyToMessageID = fmt.Sprintf("%d", message.ReplyToMessage.MessageID)
 	}
 
+	// Silently drop unknown bare commands to avoid sending placeholders or
+	// forwarding them to the agent, which would consume LLM quota on messages
+	// intended for other bots.
+	if c.isUnknownBareCommand(content) {
+		logger.DebugCF("telegram", "Dropping unknown bare command", map[string]any{
+			"chat_id": compositeChatID,
+			"content": content,
+		})
+		return nil
+	}
+
 	c.HandleMessageWithContext(
 		c.ctx,
 		compositeChatID,
@@ -1492,6 +1505,22 @@ func (c *TelegramChannel) bareBotCommandMatchesPrefix(message *telego.Message) b
 		}
 	}
 	return false
+}
+
+// isUnknownBareCommand returns true when the content looks like a bare command
+// (starts with / or !) that is NOT in the built-in command registry. Unknown
+// commands are silently dropped to avoid sending placeholders or consuming LLM
+// quota on messages intended for other bots.
+func (c *TelegramChannel) isUnknownBareCommand(content string) bool {
+	if c.cmdReg == nil {
+		return false
+	}
+	cmdName, ok := commands.CommandName(content)
+	if !ok {
+		return false
+	}
+	_, found := c.cmdReg.Lookup(cmdName)
+	return !found
 }
 
 func telegramEntityTextAndList(message *telego.Message) (string, []telego.MessageEntity) {
