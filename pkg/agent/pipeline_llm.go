@@ -529,6 +529,37 @@ func (p *Pipeline) CallLLM(
 			}
 			continue
 		}
+
+		// Unknown/other error: retry up to maxRetries before giving up
+		if retry < maxRetries {
+			backoff := time.Duration(retry+1) * time.Duration(backoffSecs) * time.Second
+			al.emitEvent(
+				runtimeevents.KindAgentLLMRetry,
+				ts.eventMeta("runTurn", "turn.llm.retry"),
+				LLMRetryPayload{
+					Attempt:    retry + 1,
+					MaxRetries: maxRetries,
+					Reason:     "unknown",
+					Error:      err.Error(),
+					Backoff:    backoff,
+				},
+			)
+			logger.WarnCF("agent", "LLM call failed with unknown error, retrying",
+				map[string]any{
+					"error":   err.Error(),
+					"retry":   retry,
+					"backoff": backoff.String(),
+				})
+			if sleepErr := sleepWithContext(turnCtx, backoff); sleepErr != nil {
+				if ts.hardAbortRequested() {
+					_ = ts.requestHardAbort()
+					return ControlBreak, nil
+				}
+				err = sleepErr
+				break
+			}
+			continue
+		}
 		break
 	}
 

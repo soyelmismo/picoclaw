@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -97,9 +98,11 @@ func transcriberFromModelConfig(modelCfg *config.ModelConfig) Transcriber {
 		return NewElevenLabsTranscriber(modelCfg.APIKey(), modelCfg.APIBase, modelID)
 	}
 	if modelID := whisperModelID(modelCfg); modelID != "" {
+		logger.DebugCF("voice", "Selected WhisperTranscriber", map[string]any{"model_id": modelID, "has_key": modelCfg.APIKey() != ""})
 		return NewWhisperTranscriber(modelCfg)
 	}
 	if supportsAudioTranscription(modelCfg) {
+		logger.DebugCF("voice", "Selected AudioModelTranscriber", map[string]any{"model": modelCfg.Model, "has_key": modelCfg.APIKey() != ""})
 		return NewAudioModelTranscriber(modelCfg)
 	}
 	return nil

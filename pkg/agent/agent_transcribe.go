@@ -11,13 +11,19 @@ import (
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
+// transcriptionResult holds the result of a single audio transcription.
+type transcriptionResult struct {
+	text string
+	err  error
+}
+
 func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.InboundMessage) (bus.InboundMessage, bool) {
 	if al.transcriber == nil || al.mediaStore == nil || len(msg.Media) == 0 {
 		return msg, false
 	}
 
 	// Transcribe each audio media ref in order.
-	var transcriptions []string
+	var results []transcriptionResult
 	var keptMedia []string
 	for _, ref := range msg.Media {
 		path, meta, err := al.mediaStore.ResolveWithMeta(ref)
@@ -33,26 +39,26 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 		result, err := al.transcriber.Transcribe(ctx, path)
 		if err != nil {
 			logger.WarnCF("voice", "Transcription failed", map[string]any{"ref": ref, "error": err})
-			transcriptions = append(transcriptions, "")
+			results = append(results, transcriptionResult{err: err})
 			keptMedia = append(keptMedia, ref)
 			continue
 		}
-		transcriptions = append(transcriptions, result.Text)
+		results = append(results, transcriptionResult{text: result.Text})
 	}
 
-	if len(transcriptions) == 0 {
+	if len(results) == 0 {
 		return msg, false
 	}
 
-	al.sendTranscriptionFeedback(ctx, msg.Channel, msg.ChatID, msg.MessageID, transcriptions)
+	al.sendTranscriptionFeedback(ctx, msg.Channel, msg.ChatID, msg.MessageID, results)
 
 	// Replace audio annotations sequentially with transcriptions.
 	idx := 0
 	newContent := audioAnnotationRe.ReplaceAllStringFunc(msg.Content, func(match string) string {
-		if idx >= len(transcriptions) {
+		if idx >= len(results) {
 			return match
 		}
-		text := transcriptions[idx]
+		text := results[idx].text
 		idx++
 		if text == "" {
 			return match
@@ -61,9 +67,9 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 	})
 
 	// Append any remaining transcriptions not matched by an annotation.
-	for ; idx < len(transcriptions); idx++ {
-		if transcriptions[idx] != "" {
-			newContent += "\n[voice: " + transcriptions[idx] + "]"
+	for ; idx < len(results); idx++ {
+		if results[idx].text != "" {
+			newContent += "\n[voice: " + results[idx].text + "]"
 		}
 	}
 
@@ -75,7 +81,7 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 func (al *AgentLoop) sendTranscriptionFeedback(
 	ctx context.Context,
 	channel, chatID, messageID string,
-	validTexts []string,
+	results []transcriptionResult,
 ) {
 	if !al.cfg.Voice.EchoTranscription {
 		return
@@ -85,15 +91,21 @@ func (al *AgentLoop) sendTranscriptionFeedback(
 	}
 
 	var nonEmpty []string
-	for _, t := range validTexts {
-		if t != "" {
-			nonEmpty = append(nonEmpty, t)
+	var firstErr error
+	for _, r := range results {
+		if r.text != "" {
+			nonEmpty = append(nonEmpty, r.text)
+		}
+		if r.err != nil && firstErr == nil {
+			firstErr = r.err
 		}
 	}
 
 	var feedbackMsg string
 	if len(nonEmpty) > 0 {
 		feedbackMsg = "Transcript: " + strings.Join(nonEmpty, "\n")
+	} else if firstErr != nil {
+		feedbackMsg = "Transcription error: " + firstErr.Error()
 	} else {
 		feedbackMsg = "No voice detected in the audio"
 	}

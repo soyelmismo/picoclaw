@@ -44,6 +44,7 @@ func newEvolutionBridge(
 	}
 
 	modelID := resolvedEvolutionModelID(cfg, provider)
+	judgeModelID := resolvedJudgeModelID(cfg, provider)
 	runtime, err := evolution.NewRuntime(evolution.RuntimeOptions{
 		Config: cfg.Evolution,
 		PatternClusterer: evolution.NewLLMPatternClusterer(
@@ -57,7 +58,7 @@ func newEvolutionBridge(
 			return evolution.NewDraftGeneratorForWorkspace(workspace, provider, modelID)
 		},
 		SuccessJudgeFactory: func(workspace string) evolution.SuccessJudge {
-			return evolution.NewLLMTaskSuccessJudge(provider, modelID, &evolution.HeuristicSuccessJudge{})
+			return evolution.NewLLMTaskSuccessJudge(provider, judgeModelID, &evolution.HeuristicSuccessJudge{})
 		},
 		ApplierFactory: func(workspace string) *evolution.Applier {
 			return evolution.NewApplier(evolution.NewPaths(workspace, cfg.Evolution.StateDir), nil)
@@ -100,6 +101,17 @@ func resolvedEvolutionModelID(cfg *config.Config, provider providers.LLMProvider
 		return provider.GetDefaultModel()
 	}
 	return ""
+}
+
+// resolvedJudgeModelID returns the model ID for the LLM success judge.
+// It prefers evolution.judge_model when set, falling back to the main model.
+func resolvedJudgeModelID(cfg *config.Config, provider providers.LLMProvider) string {
+	if cfg != nil {
+		if judgeModel := strings.TrimSpace(cfg.Evolution.JudgeModel); judgeModel != "" {
+			return judgeModel
+		}
+	}
+	return resolvedEvolutionModelID(cfg, provider)
 }
 
 func (b *evolutionBridge) Close() error {

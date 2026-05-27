@@ -199,6 +199,7 @@ func (t *WhisperTranscriber) doRequest(
 		"provider":           t.providerName,
 		"request_size_bytes": requestBody.Len(),
 		"url":                url,
+		"content_type":       contentType,
 	})
 
 	resp, err := t.httpClient.Do(req)

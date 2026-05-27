@@ -436,6 +436,7 @@ func (p *Provider) Chat(
 	}
 
 	requestBody := p.buildRequestBody(messages, tools, model, options)
+	requestBody["stream"] = false
 
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {

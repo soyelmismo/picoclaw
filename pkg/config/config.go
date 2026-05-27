@@ -62,6 +62,7 @@ type EvolutionConfig struct {
 	MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 	ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 	ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+	JudgeModel      string   `json:"judge_model,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -77,6 +78,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+		JudgeModel      string   `json:"judge_model,omitempty"`
 	}{
 		Enabled:         c.Enabled,
 		Mode:            c.Mode,
@@ -85,6 +87,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio: c.EffectiveMinSuccessRatio(),
 		ColdPathTrigger: strings.TrimSpace(c.ColdPathTrigger),
 		ColdPathTimes:   c.EffectiveColdPathTimes(),
+		JudgeModel:      c.JudgeModel,
 	}
 	if !out.Enabled {
 		out.Mode = ""
