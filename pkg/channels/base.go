@@ -292,15 +292,11 @@ func (c *BaseChannel) HandleMessageWithContext(
 		sender = senderOpts[0]
 	}
 	senderID := strings.TrimSpace(inboundCtx.SenderID)
-	if sender.CanonicalID != "" || sender.PlatformID != "" {
-		if !c.IsAllowedSender(sender) {
-			return
-		}
-	} else {
-		if !c.IsAllowed(senderID) {
-			return
-		}
-	}
+	// Note: IsAllowedSender is already checked by the channel handler before
+	// calling this method (e.g. Telegram's handleMessages does it with the
+	// groups_allow_any bypass). The check below would DOUBLE-FILTER users
+	// allowed by groups_allow_any, so it's intentionally removed.
+	// See: telegram.go handleMessages() groups_allow_any logic.
 
 	// Set SenderID to canonical if available, otherwise keep the raw senderID
 	resolvedSenderID := senderID

@@ -892,6 +892,11 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 		// check if the chat ID is in allow_from instead of the sender.
 		if c.bc.GroupsAllowAny && message.Chat.Type != telego.ChatTypePrivate {
 			chatIDStr := fmt.Sprintf("%d", message.Chat.ID)
+			logger.DebugCF("telegram", "groups_allow_any: checking chat ID against allowlist", map[string]any{
+				"chat_id":   chatIDStr,
+				"allowlist": c.bc.AllowFrom,
+				"sender":    platformID,
+			})
 			if !c.IsChatAllowed(chatIDStr) {
 				logger.DebugCF("telegram", "Group message rejected: chat not in allow_from", map[string]any{
 					"chat_id": chatIDStr,
@@ -1515,8 +1520,10 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// If streaming previously failed (e.g. no permission to draft in group),
+	// silently skip all further updates. Finalize will send the response directly.
 	if s.failed {
-		return fmt.Errorf("telegram streaming disabled after previous draft failure")
+		return nil
 	}
 
 	// Throttle: skip if not enough time or content has passed
