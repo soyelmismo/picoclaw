@@ -981,7 +981,7 @@ func TestConfiguredStreamingAfterLLMAbortCancelsPublishedStream(t *testing.T) {
 	}
 }
 
-func TestConfiguredStreamingFinalizesWithDefaultResponseWhenContentEmpty(t *testing.T) {
+func TestConfiguredStreamingRetriesOnEmptyContent(t *testing.T) {
 	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
 	streamer := &recordingStreamer{}
 	msgBus := bus.NewMessageBus()
@@ -996,11 +996,11 @@ func TestConfiguredStreamingFinalizesWithDefaultResponseWhenContentEmpty(t *test
 
 	got := runConfiguredStreamingTurn(t, al, "pico")
 
-	if got != defaultResponse {
-		t.Fatalf("response = %q, want default response", got)
+	if got != "stream response" {
+		t.Fatalf("response = %q, want non-empty response after retry", got)
 	}
-	if len(streamer.finalized) != 1 || streamer.finalized[0] != defaultResponse {
-		t.Fatalf("stream finalized = %v, want [%q]", streamer.finalized, defaultResponse)
+	if len(streamer.finalized) != 1 || streamer.finalized[0] != "stream response" {
+		t.Fatalf("stream finalized = %v, want [%q]", streamer.finalized, "stream response")
 	}
 }
 

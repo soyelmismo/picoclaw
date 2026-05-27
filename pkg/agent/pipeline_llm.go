@@ -239,6 +239,36 @@ func (p *Pipeline) CallLLM(
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
+			// Empty response — model returned success without content or tool calls.
+			// Retry instead of sending a useless fallback message to the user.
+			if isEmptyLLMResponse(exec.response) && retry < maxRetries {
+				backoff := time.Duration(retry+1) * time.Duration(backoffSecs) * time.Second
+				al.emitEvent(
+					runtimeevents.KindAgentLLMRetry,
+					ts.eventMeta("runTurn", "turn.llm.retry"),
+					LLMRetryPayload{
+						Attempt:    retry + 1,
+						MaxRetries: maxRetries,
+						Reason:     "empty_response",
+						Error:      "model returned empty content",
+						Backoff:    backoff,
+					},
+				)
+				logger.WarnCF("agent", "Empty LLM response, retrying after backoff",
+					map[string]any{
+						"retry":   retry,
+						"backoff": backoff.String(),
+					})
+				if sleepErr := sleepWithContext(turnCtx, backoff); sleepErr != nil {
+					if ts.hardAbortRequested() {
+						_ = ts.requestHardAbort()
+						return ControlBreak, nil
+					}
+					err = sleepErr
+					break
+				}
+				continue
+			}
 			break
 		}
 		if ts.hardAbortRequested() && errors.Is(err, context.Canceled) {
@@ -734,4 +764,14 @@ func providerForFallbackCandidate(
 		return nil, fmt.Errorf("fallback model %q has no active provider", model)
 	}
 	return activeProvider, nil
+}
+
+// isEmptyLLMResponse returns true when the model returned a successful response
+// with no meaningful content — no text and no tool calls. These get retried
+// instead of falling through to the DefaultResponse fallback message.
+func isEmptyLLMResponse(resp *providers.LLMResponse) bool {
+	if resp == nil {
+		return true
+	}
+	return resp.Content == "" && len(resp.ToolCalls) == 0
 }
