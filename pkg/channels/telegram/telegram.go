@@ -1525,11 +1525,14 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 		ParseMode:       telego.ModeHTML,
 	})
 	if err != nil {
-		logger.WarnCF("telegram", "sendMessageDraft failed, disabling streaming", map[string]any{
+		logger.WarnCF("telegram", "sendMessageDraft failed (streaming degraded, final response will be sent directly)", map[string]any{
 			"error": err.Error(),
+			"chat":  s.chatID,
 		})
 		s.failed = true
-		return fmt.Errorf("telegram draft update: %w", err)
+		// Return nil instead of error so the caller doesn't propagate a confusing
+		// error message. Finalize will send the full response via SendMessage.
+		return nil
 	}
 
 	s.lastLen = len(content)
