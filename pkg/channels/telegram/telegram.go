@@ -964,6 +964,16 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 	isMentioned := false
 	if message.Chat.Type != "private" {
 		isMentioned = c.isBotMentioned(message)
+
+		// Reply to the bot's own message counts as an implicit mention,
+		// even without @bot or /command.
+		if !isMentioned && message.ReplyToMessage != nil {
+			replyFrom := message.ReplyToMessage.From
+			if replyFrom != nil && c.isOwnBotUser(replyFrom) {
+				isMentioned = true
+			}
+		}
+
 		if isMentioned {
 			content = c.stripBotMention(content)
 		}
@@ -1560,25 +1570,74 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 }
 
 func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
-	htmlContent := markdownToTelegramHTML(content)
-	tgMsg := tu.Message(tu.ID(s.chatID), htmlContent)
-	tgMsg.MessageThreadID = s.threadID
-	tgMsg.ParseMode = telego.ModeHTML
+	const maxTelegramMsg = 4096
 
-	if _, err := s.bot.SendMessage(ctx, tgMsg); err != nil {
-		// Fallback to plain text
-		tgMsg.ParseMode = ""
-		if _, err = s.bot.SendMessage(ctx, tgMsg); err != nil {
-			logger.ErrorCF("telegram", "Finalize failed after HTML and plain-text attempts", map[string]any{
-				"chat_id": s.chatID,
-				"error":   err.Error(),
-				"len":     len(content),
-			})
-			return fmt.Errorf("telegram finalize: %w", err)
+	// Split content into chunks if it exceeds Telegram's limit
+	chunks := splitMessageSafe(content, maxTelegramMsg)
+	for _, chunk := range chunks {
+		htmlContent := markdownToTelegramHTML(chunk)
+		tgMsg := tu.Message(tu.ID(s.chatID), htmlContent)
+		tgMsg.MessageThreadID = s.threadID
+
+		// If HTML rendered version fits, send with HTML parsing
+		if len([]rune(htmlContent)) <= maxTelegramMsg {
+			tgMsg.ParseMode = telego.ModeHTML
+			if _, err := s.bot.SendMessage(ctx, tgMsg); err != nil {
+				// Fallback to plain text
+				tgMsg.ParseMode = ""
+				tgMsg.Text = chunk
+				if _, err = s.bot.SendMessage(ctx, tgMsg); err != nil {
+					logger.ErrorCF("telegram", "Finalize failed after HTML and plain-text attempts", map[string]any{
+						"chat_id": s.chatID,
+						"error":   err.Error(),
+						"len":     len(chunk),
+					})
+					return fmt.Errorf("telegram finalize: %w", err)
+				}
+			}
+		} else {
+			// HTML too long, send as plain text (no parsing)
+			tgMsg.ParseMode = ""
+			if _, err := s.bot.SendMessage(ctx, tgMsg); err != nil {
+				logger.ErrorCF("telegram", "Finalize failed (plain text)", map[string]any{
+					"chat_id": s.chatID,
+					"error":   err.Error(),
+					"len":     len(chunk),
+				})
+				return fmt.Errorf("telegram finalize: %w", err)
+			}
 		}
 	}
 	s.Cancel(ctx)
 	return nil
+}
+
+// splitMessageSafe splits a string into chunks of at most maxLen runes,
+// breaking at newlines when possible to avoid cutting mid-word.
+func splitMessageSafe(text string, maxLen int) []string {
+	if len([]rune(text)) <= maxLen {
+		return []string{text}
+	}
+
+	var chunks []string
+	runes := []rune(text)
+	for len(runes) > 0 {
+		if len(runes) <= maxLen {
+			chunks = append(chunks, string(runes))
+			break
+		}
+		// Try to break at a newline within the limit
+		cut := maxLen
+		for i := maxLen; i > maxLen/2; i-- {
+			if runes[i] == '\n' {
+				cut = i
+				break
+			}
+		}
+		chunks = append(chunks, string(runes[:cut]))
+		runes = runes[cut:]
+	}
+	return chunks
 }
 
 func (s *telegramStreamer) Cancel(ctx context.Context) {
