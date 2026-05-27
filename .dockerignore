@@ -9,3 +9,15 @@ config/
 .env.example
 *.md
 assets/
+docs/
+plans/
+presentations/
+examples/
+website/
+web/
+Dockerfile
+.dockerignore
+docker-compose*.yml
+deploy-*.sh
+*.drawio
+*.pdf
