@@ -436,13 +436,11 @@ func (al *AgentLoop) askSideQuestion(
 	activeCandidates, activeModel, usedLight := al.selectCandidates(agent, question, messages)
 	selectedModelName := sideQuestionModelName(agent, usedLight)
 
-	// If messages contain media and an image model is configured,
-	// switch to the image model for vision-capable handling.
+	// Pre-process images: make a lightweight side call to the vision model
+	// with just the image + description prompt, replacing the bulky data with
+	// text to avoid context overflow in the main chat.
 	if hasMediaRefs(messages) && agent.ImageProvider != nil && agent.ImageModel != "" {
-		activeModel = agent.ImageModel
-		selectedModelName = agent.ImageModel
-		activeCandidates = nil
-		usedLight = false
+		messages = preprocessUserVision(ctx, messages, agent.ImageProvider, agent.ImageModel, agent.MaxTokens)
 	}
 
 	llmOpts := map[string]any{

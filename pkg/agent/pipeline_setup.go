@@ -42,6 +42,12 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 
 	messages = resolveMediaRefs(messages, p.MediaStore, maxMediaSize)
 
+	// Pre-process user images: instead of routing the full chat context to a
+	// vision model (which can overflow with base64 image data), make a lightweight
+	// side call to the image model with just the image and a description prompt.
+	// The resulting text is injected into the message, replacing the bulky data.
+	messages = preprocessUserVision(ctx, messages, ts.agent.ImageProvider, ts.agent.ImageModel, ts.agent.MaxTokens)
+
 	if !ts.opts.NoHistory {
 		toolDefs := filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefs(), ts.profile)
 		if isOverContextBudget(ts.agent.ContextWindow, messages, toolDefs, ts.agent.MaxTokens) {

@@ -34,10 +34,12 @@ func (p *Pipeline) CallLLM(
 		exec.messages = resolveMediaRefs(exec.messages, p.MediaStore, maxMediaSize)
 	}
 
-	// Re-check image model routing on every iteration: media may have appeared
-	// from tool results (e.g., load_image tool output) that were just resolved
-	// by resolveMediaRefs above. If media is present and an image model is
-	// configured but not currently active, switch to it for vision support.
+	// Pre-process images from tool results via lightweight side vision call
+	// instead of routing the full chat context to the image model.
+	exec.messages = preprocessUserVision(ctx, exec.messages, ts.agent.ImageProvider, ts.agent.ImageModel, ts.agent.MaxTokens)
+
+	// Fallback: if any images remain (vision call failed or no image model),
+	// route to the image model so it can handle the full context.
 	if hasMediaRefs(exec.messages) && ts.agent.ImageProvider != nil && ts.agent.ImageModel != "" {
 		if exec.activeProvider != ts.agent.ImageProvider {
 			imgCandidates := resolveModelCandidates(p.Cfg, p.Cfg.Agents.Defaults.Provider, ts.agent.ImageModel, ts.agent.ImageFallbacks)

@@ -8,11 +8,13 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"io"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/h2non/filetype"
 
@@ -135,6 +137,91 @@ func resolveMediaRefs(messages []providers.Message, store media.MediaStore, maxS
 				Media:   pendingToolImages,
 			})
 			pendingToolImages = nil
+		}
+	}
+
+	return result
+}
+
+// preprocessUserVision inspects messages for image data URLs. When found and an
+// image model is configured, it makes a lightweight side call to the vision model
+// with just the image and a description prompt. The resulting text description is
+// injected into the message content, replacing the bulky base64 data. This avoids
+// overflowing the context window and works with any primary model — not just
+// vision-capable ones.
+func preprocessUserVision(
+	ctx context.Context,
+	messages []providers.Message,
+	imageProvider providers.LLMProvider,
+	imageModel string,
+	maxTokens int,
+) []providers.Message {
+	if imageProvider == nil || imageModel == "" {
+		return messages
+	}
+
+	result := make([]providers.Message, len(messages))
+	copy(result, messages)
+
+	for i, msg := range result {
+		if len(msg.Media) == 0 {
+			continue
+		}
+
+		var descriptions []string
+		var remaining []string
+
+		for _, mediaURL := range msg.Media {
+			if !strings.HasPrefix(mediaURL, "data:image/") {
+				remaining = append(remaining, mediaURL)
+				continue
+			}
+
+			visionCtx, visionCancel := context.WithTimeout(ctx, 30*time.Second)
+			visionMsg := providers.Message{
+				Role:    "user",
+				Content: "Describe this image in detail.",
+				Media:   []string{mediaURL},
+			}
+			callOpts := map[string]any{
+				"max_tokens":  maxTokens,
+				"temperature": 0.1,
+			}
+			var resp *providers.LLMResponse
+			var err error
+			if sp, ok := imageProvider.(providers.StreamingProvider); ok {
+				var fullContent string
+				resp, err = sp.ChatStream(visionCtx, []providers.Message{visionMsg}, nil, imageModel, callOpts,
+					func(accumulated string) { fullContent = accumulated },
+				)
+				if err == nil && resp != nil && resp.Content == "" && fullContent != "" {
+					resp.Content = fullContent
+				}
+			} else {
+				resp, err = imageProvider.Chat(visionCtx, []providers.Message{visionMsg}, nil, imageModel, callOpts)
+			}
+			visionCancel()
+			if err != nil {
+				logger.WarnCF("agent", "Vision pre-processing failed, keeping image data",
+					map[string]any{"error": err.Error()})
+				remaining = append(remaining, mediaURL)
+				continue
+			}
+			if resp != nil && resp.Content != "" {
+				descriptions = append(descriptions, resp.Content)
+			} else {
+				remaining = append(remaining, mediaURL)
+			}
+		}
+
+		if len(descriptions) > 0 {
+			combined := strings.Join(descriptions, "\n\n---\n\n")
+			if msg.Content != "" {
+				result[i].Content = msg.Content + "\n\n[Image description: " + combined + "]"
+			} else {
+				result[i].Content = "[Image description: " + combined + "]"
+			}
+			result[i].Media = remaining
 		}
 	}
 
