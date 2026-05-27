@@ -1140,6 +1140,11 @@ func indexedMediaFilename(prefix, ext string, index int, total int) string {
 }
 
 func (c *TelegramChannel) prependTelegramQuotedReply(content string, reply *telego.Message) string {
+	// Skip quoted replies if disabled in config
+	if c.tgCfg != nil && c.tgCfg.TasksDisableQuote {
+		return content
+	}
+
 	quoted := strings.TrimSpace(telegramQuotedContent(reply))
 	if quoted == "" {
 		return content
@@ -1666,8 +1671,9 @@ func (s *telegramStreamer) finalizeChunk(ctx context.Context, chunk string) erro
 			}
 		}
 	} else {
-		// HTML too long, send as plain text (no parsing)
+		// HTML too long, send original plain text (no parsing)
 		tgMsg.ParseMode = ""
+		tgMsg.Text = chunk
 		if err := s.sendWith429Retry(ctx, tgMsg, maxRateLimitRetries); err != nil {
 			logger.ErrorCF("telegram", "Finalize failed (plain text)", map[string]any{
 				"chat_id": s.chatID,

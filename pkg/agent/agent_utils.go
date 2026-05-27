@@ -203,11 +203,7 @@ func toolFeedbackExplanationForToolCall(
 }
 
 func toolFeedbackExplanationFromMessages(messages []providers.Message) string {
-	explanation := latestUserContent(messages)
-	if explanation != "" {
-		return utils.ToolFeedbackContinuationHint + ": " + explanation
-	}
-	return ""
+	return latestUserContent(messages)
 }
 
 func toolFeedbackArgsPreview(args map[string]any, maxLen int) string {
