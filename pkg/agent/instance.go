@@ -33,6 +33,8 @@ type AgentInstance struct {
 	ThinkingLevel             ThinkingLevel
 	ThinkingLevelConfigured   bool
 	ContextWindow             int
+	SummarizeModel            string
+	SummarizeProvider         providers.LLMProvider
 	SummarizeMessageThreshold int
 	SummarizeTokenPercent     int
 	Provider                  providers.LLMProvider
@@ -197,6 +199,29 @@ func NewAgentInstance(
 		summarizeTokenPercent = 75
 	}
 
+	// Resolve summarization model if configured separately
+	var summarizeProvider providers.LLMProvider
+	var summarizeModel string
+	if sm := defaults.SummarizeModel; sm != "" && sm != model {
+		smCfg, err := resolvedModelConfig(cfg, sm, workspace)
+		if err != nil {
+			logger.WarnCF("agent", "Summarize model config resolution failed; falling back to primary model",
+				map[string]any{"summarize_model": sm, "error": err.Error()})
+		} else {
+			sp, _, err := providers.CreateProviderFromConfig(smCfg)
+			if err != nil {
+				logger.WarnCF("agent", "Summarize model provider init failed; falling back to primary model",
+					map[string]any{"summarize_model": sm, "error": err.Error()})
+			} else {
+				summarizeProvider = sp
+				summarizeModel = sm
+			}
+		}
+	}
+	if summarizeModel == "" {
+		summarizeModel = model
+	}
+
 	// Resolve fallback candidates
 	candidates := resolveModelCandidates(cfg, defaults.Provider, model, fallbacks)
 
@@ -255,9 +280,11 @@ func NewAgentInstance(
 		ThinkingLevel:             thinkingLevel,
 		ThinkingLevelConfigured:   thinkingLevelConfigured,
 		ContextWindow:             contextWindow,
+		SummarizeModel:            summarizeModel,
 		SummarizeMessageThreshold: summarizeMessageThreshold,
 		SummarizeTokenPercent:     summarizeTokenPercent,
 		Provider:                  provider,
+		SummarizeProvider:         summarizeProvider,
 		Sessions:                  sessions,
 		ContextBuilder:            contextBuilder,
 		Tools:                     toolsRegistry,

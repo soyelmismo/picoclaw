@@ -33,8 +33,14 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 	agent := al.registry.GetDefaultAgent()
 	dbPath := agent.Workspace + "/sessions/seahorse.db"
 
-	// Create CompleteFn from provider
-	completeFn := providerToCompleteFn(agent.Provider, agent.Model)
+	// Use summarize-specific model/provider if configured, otherwise fall back to primary
+	summarizeProvider := agent.Provider
+	summarizeModel := agent.Model
+	if agent.SummarizeProvider != nil {
+		summarizeProvider = agent.SummarizeProvider
+		summarizeModel = agent.SummarizeModel
+	}
+	completeFn := providerToCompleteFn(summarizeProvider, summarizeModel)
 
 	// Create engine
 	engine, err := seahorse.NewEngine(seahorse.Config{

@@ -290,6 +290,14 @@ func (m *legacyContextManager) retryLLMCall(
 ) (*providers.LLMResponse, error) {
 	const llmTemperature = 0.3
 
+	// Use summarize-specific model/provider if configured, otherwise fall back to primary
+	summarizeProvider := agent.Provider
+	summarizeModel := agent.Model
+	if agent.SummarizeProvider != nil {
+		summarizeProvider = agent.SummarizeProvider
+		summarizeModel = agent.SummarizeModel
+	}
+
 	var resp *providers.LLMResponse
 	var err error
 
@@ -297,11 +305,11 @@ func (m *legacyContextManager) retryLLMCall(
 		m.al.activeRequests.Add(1)
 		resp, err = func() (*providers.LLMResponse, error) {
 			defer m.al.activeRequests.Done()
-			return agent.Provider.Chat(
+			return summarizeProvider.Chat(
 				ctx,
 				[]providers.Message{{Role: "user", Content: prompt}},
 				nil,
-				agent.Model,
+				summarizeModel,
 				map[string]any{
 					"max_tokens":       agent.MaxTokens,
 					"temperature":      llmTemperature,
