@@ -1574,7 +1574,11 @@ func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
 
 	// Split content into chunks if it exceeds Telegram's limit
 	chunks := splitMessageSafe(content, maxTelegramMsg)
-	for _, chunk := range chunks {
+	for i, chunk := range chunks {
+		if i > 0 {
+			// Rate-limit: wait 1s between chunks to avoid 429
+			time.Sleep(time.Second)
+		}
 		htmlContent := markdownToTelegramHTML(chunk)
 		tgMsg := tu.Message(tu.ID(s.chatID), htmlContent)
 		tgMsg.MessageThreadID = s.threadID
