@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -139,6 +140,24 @@ func outboundMessageForTurnWithOptions(
 	return msg
 }
 
+// toolCallScaffoldingRe matches patterns that indicate response.Content is
+// model scaffolding accompanying a tool call rather than genuine user-facing
+// text. When these appear in the content we should NOT use it as the tool
+// feedback explanation — it would flood the chat with raw tool-call residue.
+var toolCallScaffoldingRe = regexp.MustCompile(
+	`(?s)(?:` +
+		`\[?(?:tool_use|tooluse|tool_call|action)\s*:` +
+		`|<\|\[SPLIT\]\|>` +
+		`|` + "`" + `🔧` +
+		`)`,
+)
+
+// isToolCallScaffolding returns true when text looks like model-emitted
+// tool-call scaffolding rather than genuine conversational content.
+func isToolCallScaffolding(text string) bool {
+	return toolCallScaffoldingRe.MatchString(text)
+}
+
 func toolFeedbackExplanationFromResponse(
 	response *providers.LLMResponse,
 	_ []providers.Message,
@@ -146,15 +165,14 @@ func toolFeedbackExplanationFromResponse(
 	if response == nil {
 		return ""
 	}
-	// Model's own text content is the best explanation.
 	if explanation := strings.TrimSpace(response.Content); explanation != "" {
-		return explanation
+		if !isToolCallScaffolding(explanation) {
+			return explanation
+		}
 	}
-	// Check if any tool call has an explicit explanation.
 	if explanation := toolFeedbackExplanationFromToolCalls(response.ToolCalls); explanation != "" {
 		return explanation
 	}
-	// Generic fallback — never echo the user's full message.
 	return utils.ToolFeedbackContinuationHint
 }
 
@@ -181,20 +199,20 @@ func toolFeedbackExplanationForToolCall(
 		}
 	}
 
-	// Use model's text response as explanation if available.
 	if response != nil {
 		if explanation := strings.TrimSpace(response.Content); explanation != "" {
-			return explanation
+			if !isToolCallScaffolding(explanation) {
+				return explanation
+			}
 		}
 	}
 
-	// Fallback: when the model produced no text, show a generic continuation hint
-	// instead of echoing the user's full message.
 	return utils.ToolFeedbackContinuationHint
 }
 
 func toolFeedbackArgsPreview(args map[string]any, maxLen int) string {
-	argsJSON := utils.FormatArgsJSON(args, true, false)
+	compact := utils.CompactArgsJSON(args)
+	argsJSON := utils.FormatArgsJSON(compact, true, false)
 	return utils.Truncate(argsJSON, maxLen)
 }
 

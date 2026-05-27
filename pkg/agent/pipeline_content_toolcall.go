@@ -45,9 +45,22 @@ func extractToolCallsFromContent(resp *providers.LLMResponse) *providers.LLMResp
 	remaining = strings.TrimSpace(remaining)
 
 	if len(extracted) > 0 {
+		beforeDedup := len(extracted)
 		extracted = deduplicateToolCalls(resp.ToolCalls, extracted)
 		resp.ToolCalls = append(resp.ToolCalls, extracted...)
-		resp.Content = remaining
+
+		// When every content-extracted tool call was a duplicate of an
+		// API-level tool_call, the remaining text is almost certainly just
+		// the model's scaffolding (explanation, emoji prefix, etc.) that
+		// accompanied the duplicate content tool call — not real
+		// conversational content. Discard it to avoid flooding the chat
+		// with a huge explanation that becomes tool feedback or final
+		// response content.
+		if len(extracted) == 0 && beforeDedup > 0 {
+			resp.Content = ""
+		} else {
+			resp.Content = remaining
+		}
 	}
 
 	return resp

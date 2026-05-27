@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -154,3 +155,70 @@ func jsonValEq(a, b any) bool {
 	bJSON, _ := json.Marshal(b)
 	return string(aJSON) == string(bJSON)
 }
+
+func TestCompactArgsJSON_TruncatesLongStrings(t *testing.T) {
+	longVal := strings.Repeat("x", 500)
+	args := map[string]any{
+		"path":    "/tmp/test.md",
+		"content": longVal,
+	}
+	compact := CompactArgsJSON(args)
+	contentStr, ok := compact["content"].(string)
+	if !ok {
+		t.Fatalf("Expected content to be string, got %T", compact["content"])
+	}
+	if len(contentStr) > toolFeedbackMaxValueLen+3 {
+		t.Errorf("Expected content to be truncated to ~%d chars, got %d chars", toolFeedbackMaxValueLen, len(contentStr))
+	}
+	pathStr, ok := compact["path"].(string)
+	if !ok {
+		t.Fatalf("Expected path to be string, got %T", compact["path"])
+	}
+	if pathStr != "/tmp/test.md" {
+		t.Errorf("Expected short path to be unchanged, got %q", pathStr)
+	}
+}
+
+func TestCompactArgsJSON_NilArgs(t *testing.T) {
+	result := CompactArgsJSON(nil)
+	if result != nil {
+		t.Errorf("Expected nil, got %v", result)
+	}
+}
+
+func TestCompactArgsJSON_NestedMap(t *testing.T) {
+	longVal := strings.Repeat("y", 500)
+	args := map[string]any{
+		"nested": map[string]any{
+			"inner": longVal,
+		},
+	}
+	compact := CompactArgsJSON(args)
+	nested, ok := compact["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected nested map, got %T", compact["nested"])
+	}
+	inner, ok := nested["inner"].(string)
+	if !ok {
+		t.Fatalf("Expected inner to be string, got %T", nested["inner"])
+	}
+	if len(inner) > toolFeedbackMaxValueLen+3 {
+		t.Errorf("Expected nested inner to be truncated, got %d chars", len(inner))
+	}
+}
+
+func TestCompactArgsJSON_NonStringValuesUnchanged(t *testing.T) {
+	args := map[string]any{
+		"count":  42,
+		"flag":   true,
+		"items":  []any{1, 2, 3},
+	}
+	compact := CompactArgsJSON(args)
+	if compact["count"] != 42 {
+		t.Errorf("Expected count unchanged, got %v", compact["count"])
+	}
+	if compact["flag"] != true {
+		t.Errorf("Expected flag unchanged, got %v", compact["flag"])
+	}
+}
+

@@ -376,3 +376,60 @@ func TestStripMarkerFromArgs_Nil(t *testing.T) {
 		t.Errorf("Expected nil, got %v", result)
 	}
 }
+
+func TestExtractToolCallsFromContent_AllDuplicatesDiscardsRemaining(t *testing.T) {
+	content := `🔧 write_file. [tool_use: write_file, args: {"path":"/tmp/test.md","content":"huge content here"}]`
+	resp := &providers.LLMResponse{
+		Content: content,
+		ToolCalls: []providers.ToolCall{{
+			ID:   "call_api_1",
+			Name: "write_file",
+			Function: &providers.FunctionCall{
+				Name:      "write_file",
+				Arguments: `{"content":"huge content here","path":"/tmp/test.md"}`,
+			},
+		}},
+	}
+
+	result := extractToolCallsFromContent(resp)
+
+	if len(result.ToolCalls) != 1 {
+		t.Fatalf("Expected 1 tool call (API one kept), got %d", len(result.ToolCalls))
+	}
+	if result.ToolCalls[0].ID != "call_api_1" {
+		t.Errorf("Expected API tool call to be kept, got ID %q", result.ToolCalls[0].ID)
+	}
+	if result.Content != "" {
+		t.Errorf("Expected remaining content to be discarded when all extracted calls were duplicates, got %q", result.Content)
+	}
+}
+
+func TestExtractToolCallsFromContent_PartialDuplicatesKeepsNonDupContent(t *testing.T) {
+	content := `[tool_use: write_file, args: {"path":"/tmp/a.md","content":"x"}] [tool_use: read_file, args: {"path":"/tmp/b.md"}]`
+	resp := &providers.LLMResponse{
+		Content: content,
+		ToolCalls: []providers.ToolCall{{
+			ID:   "call_api_1",
+			Name: "write_file",
+			Function: &providers.FunctionCall{
+				Name:      "write_file",
+				Arguments: `{"content":"x","path":"/tmp/a.md"}`,
+			},
+		}},
+	}
+
+	result := extractToolCallsFromContent(resp)
+
+	if len(result.ToolCalls) != 2 {
+		t.Fatalf("Expected 2 tool calls (API one + non-dup content one), got %d", len(result.ToolCalls))
+	}
+	foundReadFile := false
+	for _, tc := range result.ToolCalls {
+		if tc.Name == "read_file" {
+			foundReadFile = true
+		}
+	}
+	if !foundReadFile {
+		t.Error("Expected read_file from content to be preserved since it's not a duplicate")
+	}
+}

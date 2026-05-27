@@ -9,8 +9,9 @@ import (
 
 const ToolFeedbackContinuationHint = "Continuing the current task."
 
+const toolFeedbackMaxValueLen = 120
+
 func FormatArgsJSON(args map[string]any, prettyPrint, disableEscapeHTML bool) string {
-	// Normalize nil to empty map for consistent output
 	if args == nil {
 		args = map[string]any{}
 	}
@@ -18,21 +19,42 @@ func FormatArgsJSON(args map[string]any, prettyPrint, disableEscapeHTML bool) st
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	if prettyPrint {
-		enc.SetIndent("", "  ")
+		enc.SetIndent("", " ")
 	}
 	if disableEscapeHTML {
 		enc.SetEscapeHTML(false)
 	}
 	if err := enc.Encode(args); err != nil {
-		// Fallback to fmt.Sprintf to preserve visibility of problematic args
 		return fmt.Sprintf("%v", args)
 	}
 	return strings.TrimSpace(buf.String())
 }
 
-// FormatToolFeedbackMessage renders a tool feedback message for chat channels.
-// It keeps the tool name on the first line for animation and can include both
-// a human explanation and the serialized tool arguments in the body.
+// CompactArgsJSON returns a copy of args where long string values are
+// truncated to toolFeedbackMaxValueLen runes, preventing a single huge
+// argument (e.g., file content) from dominating the tool feedback message.
+func CompactArgsJSON(args map[string]any) map[string]any {
+	if args == nil {
+		return nil
+	}
+	compact := make(map[string]any, len(args))
+	for k, v := range args {
+		compact[k] = truncateArgValue(v)
+	}
+	return compact
+}
+
+func truncateArgValue(v any) any {
+	switch tv := v.(type) {
+	case string:
+		return Truncate(tv, toolFeedbackMaxValueLen)
+	case map[string]any:
+		return CompactArgsJSON(tv)
+	default:
+		return v
+	}
+}
+
 func FormatToolFeedbackMessage(toolName, explanation, argsPreview string) string {
 	toolName = strings.TrimSpace(toolName)
 	explanation = strings.TrimSpace(explanation)
@@ -57,9 +79,6 @@ func FormatToolFeedbackMessage(toolName, explanation, argsPreview string) string
 	return fmt.Sprintf("\U0001f527 `%s`\n%s", toolName, body)
 }
 
-// FitToolFeedbackMessage keeps tool feedback within a single outbound message.
-// It preserves the first line when possible and truncates the explanation body
-// instead of letting the message be split into multiple chunks.
 func FitToolFeedbackMessage(content string, maxLen int) string {
 	content = strings.TrimSpace(content)
 	if content == "" || maxLen <= 0 {

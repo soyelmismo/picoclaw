@@ -2781,9 +2781,88 @@ func TestToolFeedbackArgsPreview_UsesJSONAndTruncates(t *testing.T) {
 		"path":  "README.md",
 		"limit": 42,
 	}, 128)
-	want := "{\n  \"limit\": 42,\n  \"path\": \"README.md\"\n}"
+	want := "{\n \"limit\": 42,\n \"path\": \"README.md\"\n}"
 	if got != want {
 		t.Fatalf("toolFeedbackArgsPreview() = %q, want %q", got, want)
+	}
+}
+
+func TestToolFeedbackArgsPreview_TruncatesLargeStringValues(t *testing.T) {
+	longContent := strings.Repeat("x", 5000)
+	got := toolFeedbackArgsPreview(map[string]any{
+		"path":    "/tmp/test.md",
+		"content": longContent,
+	}, 300)
+	if strings.Contains(got, strings.Repeat("x", 200)) {
+		t.Error("Expected large string values to be truncated, but full value appears in preview")
+	}
+	if !strings.Contains(got, "path") {
+		t.Error("Expected 'path' key to appear in preview")
+	}
+}
+
+func TestToolFeedbackExplanationForToolCall_RejectsScaffolding(t *testing.T) {
+	response := &providers.LLMResponse{
+		Content: "I will now search. [tool_use: web_search, args: {\"query\":\"test\"}]",
+		ToolCalls: []providers.ToolCall{{
+			ID:   "call_1",
+			Name: "web_search",
+		}},
+	}
+	got := toolFeedbackExplanationForToolCall(response, response.ToolCalls[0], nil)
+	if got != utils.ToolFeedbackContinuationHint {
+		t.Errorf("Expected continuation hint for scaffolding content, got %q", got)
+	}
+}
+
+func TestToolFeedbackExplanationForToolCall_AcceptsLongGenuineContent(t *testing.T) {
+	longExplanation := strings.Repeat("This is a genuine explanation for the user. ", 100)
+	response := &providers.LLMResponse{
+		Content: longExplanation,
+		ToolCalls: []providers.ToolCall{{
+			ID:   "call_1",
+			Name: "write_file",
+		}},
+	}
+	got := toolFeedbackExplanationForToolCall(response, response.ToolCalls[0], nil)
+	if got != strings.TrimSpace(longExplanation) {
+		t.Errorf("Expected long genuine content to be used, got truncated or hint")
+	}
+}
+
+func TestToolFeedbackExplanationForToolCall_AcceptsShortGenuineContent(t *testing.T) {
+	shortExplanation := "Writing the config file."
+	response := &providers.LLMResponse{
+		Content: shortExplanation,
+		ToolCalls: []providers.ToolCall{{
+			ID:   "call_1",
+			Name: "write_file",
+		}},
+	}
+	got := toolFeedbackExplanationForToolCall(response, response.ToolCalls[0], nil)
+	if got != shortExplanation {
+		t.Errorf("Expected short content as explanation, got %q", got)
+	}
+}
+
+func TestToolFeedbackExplanationFromResponse_RejectsScaffolding(t *testing.T) {
+	response := &providers.LLMResponse{
+		Content: "[action: search, args: {\"q\":\"test\"}]",
+	}
+	got := toolFeedbackExplanationFromResponse(response, nil)
+	if got != utils.ToolFeedbackContinuationHint {
+		t.Errorf("Expected continuation hint for scaffolding content, got %q", got)
+	}
+}
+
+func TestToolFeedbackExplanationFromResponse_AcceptsLongGenuineContent(t *testing.T) {
+	longExplanation := strings.Repeat("Detailed analysis of the results. ", 100)
+	response := &providers.LLMResponse{
+		Content: longExplanation,
+	}
+	got := toolFeedbackExplanationFromResponse(response, nil)
+	if got != strings.TrimSpace(longExplanation) {
+		t.Errorf("Expected long genuine content to be used, got truncated or hint")
 	}
 }
 
