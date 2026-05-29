@@ -373,6 +373,113 @@ func (fc *FallbackChain) ExecuteImage(
 	return nil, &FallbackExhaustedError{Attempts: result.Attempts}
 }
 
+// ExecuteCandidateImage runs the fallback chain for image/vision requests,
+// passing the complete candidate to the caller (like ExecuteCandidate) but
+// using image-specific error handling (like ExecuteImage):
+//   - No cooldown checks (image endpoints have different rate limits).
+//   - Image dimension/size errors abort immediately (non-retriable).
+//   - Any other error records the attempt and tries the next candidate.
+func (fc *FallbackChain) ExecuteCandidateImage(
+	ctx context.Context,
+	candidates []FallbackCandidate,
+	run func(ctx context.Context, candidate FallbackCandidate) (*LLMResponse, error),
+) (*FallbackResult, error) {
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("image fallback: no candidates configured")
+	}
+
+	result := &FallbackResult{
+		Attempts: make([]FallbackAttempt, 0, len(candidates)),
+	}
+
+	for i, candidate := range candidates {
+		if ctx.Err() == context.Canceled {
+			return nil, context.Canceled
+		}
+
+		// Enforce per-candidate rate limit before calling the provider.
+		imageKey := candidate.StableKey()
+		if fc.rl != nil {
+			if !fc.rl.TryAcquire(imageKey) {
+				if i < len(candidates)-1 {
+					result.Attempts = append(result.Attempts, FallbackAttempt{
+						Provider: candidate.Provider,
+						Model:    candidate.Model,
+						Skipped:  true,
+						Reason:   FailoverRateLimit,
+						Error:    fmt.Errorf("%s waiting for local rate limit token", imageKey),
+					})
+					continue
+				}
+				if waitErr := fc.rl.Wait(ctx, imageKey); waitErr != nil {
+					result.Attempts = append(result.Attempts, FallbackAttempt{
+						Provider: candidate.Provider,
+						Model:    candidate.Model,
+						Skipped:  true,
+						Reason:   FailoverRateLimit,
+						Error:    waitErr,
+					})
+					return nil, waitErr
+				}
+			}
+		}
+
+		start := time.Now()
+		resp, err := run(ctx, candidate)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			result.Response = resp
+			result.Provider = candidate.Provider
+			result.Model = candidate.Model
+			result.IdentityKey = candidate.StableKey()
+			return result, nil
+		}
+
+		if ctx.Err() == context.Canceled {
+			result.Attempts = append(result.Attempts, FallbackAttempt{
+				Provider: candidate.Provider,
+				Model:    candidate.Model,
+				Error:    err,
+				Duration: elapsed,
+			})
+			return nil, context.Canceled
+		}
+
+		// Image dimension/size errors are non-retriable.
+		errMsg := strings.ToLower(err.Error())
+		if IsImageDimensionError(errMsg) || IsImageSizeError(errMsg) {
+			result.Attempts = append(result.Attempts, FallbackAttempt{
+				Provider: candidate.Provider,
+				Model:    candidate.Model,
+				Error:    err,
+				Reason:   FailoverFormat,
+				Duration: elapsed,
+			})
+			return nil, &FailoverError{
+				Reason:   FailoverFormat,
+				Provider: candidate.Provider,
+				Model:    candidate.Model,
+				Wrapped:  err,
+			}
+		}
+
+		// Any other error: record and try next.
+		result.Attempts = append(result.Attempts, FallbackAttempt{
+			Provider: candidate.Provider,
+			Model:    candidate.Model,
+			Error:    err,
+			Duration: elapsed,
+		})
+
+		if i == len(candidates)-1 {
+			return nil, &FallbackExhaustedError{Attempts: result.Attempts}
+		}
+	}
+
+	return nil, &FallbackExhaustedError{Attempts: result.Attempts}
+}
+
 // FallbackExhaustedError indicates all fallback candidates were tried and failed.
 type FallbackExhaustedError struct {
 	Attempts []FallbackAttempt

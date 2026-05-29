@@ -3698,11 +3698,11 @@ func TestProcessMessage_SwitchModelRoutesSubsequentRequestsToSelectedProvider(t 
 	if remoteCalls != 1 {
 		t.Fatalf("remote calls after switch = %d, want 1", remoteCalls)
 	}
-	if remoteModel != "deepseek-v3.2" {
+	if remoteModel != "deepseek/deepseek-v3.2" {
 		t.Fatalf(
 			"remote model after switch = %q, want %q",
 			remoteModel,
-			"deepseek-v3.2",
+			"deepseek/deepseek-v3.2",
 		)
 	}
 }

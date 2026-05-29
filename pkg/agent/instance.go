@@ -257,6 +257,12 @@ func NewAgentInstance(
 	candidateProviders := make(map[string]providers.LLMProvider)
 	populateCandidateProvidersFromNames(cfg, workspace, fallbacks, candidateProviders)
 
+	// Populate dedicated providers for image fallback candidates
+	// so they don't inherit the primary image model's credentials.
+	if len(imageFallbacks) > 0 {
+		populateCandidateProvidersFromNames(cfg, workspace, imageFallbacks, candidateProviders)
+	}
+
 	// Model routing setup: pre-resolve light model candidates at creation time
 	// to avoid repeated model_list lookups on every incoming message.
 	var router *routing.Router

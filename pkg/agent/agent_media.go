@@ -146,18 +146,34 @@ func resolveMediaRefs(messages []providers.Message, store media.MediaStore, maxS
 // preprocessUserVision inspects messages for image data URLs. When found and an
 // image model is configured, it makes a lightweight side call to the vision model
 // with just the image and a description prompt. The resulting text description is
-// injected into the message content, replacing the bulky base64 data. This avoids
+// injected into the message, replacing the bulky base64 data. This avoids
 // overflowing the context window and works with any primary model — not just
 // vision-capable ones.
+//
+// If the primary image model fails and fallback providers are available via
+// candidateProviders, each fallback is tried in order before giving up.
 func preprocessUserVision(
 	ctx context.Context,
 	messages []providers.Message,
 	imageProvider providers.LLMProvider,
 	imageModel string,
 	maxTokens int,
+	options ...any, // optional: candidateProviders map[string]providers.LLMProvider, imageFallbacks []string
 ) []providers.Message {
 	if imageProvider == nil || imageModel == "" {
 		return messages
+	}
+
+	// Parse optional variadic parameters for fallback support.
+	var candidateProviders map[string]providers.LLMProvider
+	var imageFallbacks []string
+	for _, opt := range options {
+		switch v := opt.(type) {
+		case map[string]providers.LLMProvider:
+			candidateProviders = v
+		case []string:
+			imageFallbacks = v
+		}
 	}
 
 	result := make([]providers.Message, len(messages))
@@ -177,7 +193,6 @@ func preprocessUserVision(
 				continue
 			}
 
-			visionCtx, visionCancel := context.WithTimeout(ctx, 30*time.Second)
 			visionMsg := providers.Message{
 				Role:    "user",
 				Content: "Describe this image in detail.",
@@ -187,22 +202,31 @@ func preprocessUserVision(
 				"max_tokens":  maxTokens,
 				"temperature": 0.1,
 			}
-			var resp *providers.LLMResponse
-			var err error
-			if sp, ok := imageProvider.(providers.StreamingProvider); ok {
-				var fullContent string
-				resp, err = sp.ChatStream(visionCtx, []providers.Message{visionMsg}, nil, imageModel, callOpts,
-					func(accumulated string) { fullContent = accumulated },
-				)
-				if err == nil && resp != nil && resp.Content == "" && fullContent != "" {
-					resp.Content = fullContent
+
+			// Try primary image model, then fallbacks if configured.
+			resp, err := callVisionProvider(ctx, imageProvider, imageModel, visionMsg, callOpts)
+			if err != nil && len(imageFallbacks) > 0 && candidateProviders != nil {
+				for _, fbName := range imageFallbacks {
+					fbRef := providers.ParseModelRef(fbName, "")
+					if fbRef == nil {
+						continue
+					}
+					fbKey := providers.ModelKey(fbRef.Provider, fbRef.Model)
+					fbProvider, ok := candidateProviders[fbKey]
+					if !ok || fbProvider == nil {
+						continue
+					}
+					logger.DebugCF("agent", "Vision pre-processing: trying fallback model",
+						map[string]any{"fallback": fbName})
+					resp, err = callVisionProvider(ctx, fbProvider, fbRef.Model, visionMsg, callOpts)
+					if err == nil {
+						break
+					}
 				}
-			} else {
-				resp, err = imageProvider.Chat(visionCtx, []providers.Message{visionMsg}, nil, imageModel, callOpts)
 			}
-			visionCancel()
+
 			if err != nil {
-				logger.WarnCF("agent", "Vision pre-processing failed, keeping image data",
+				logger.WarnCF("agent", "Vision pre-processing failed (all models), keeping image data",
 					map[string]any{"error": err.Error()})
 				remaining = append(remaining, mediaURL)
 				continue
@@ -226,6 +250,31 @@ func preprocessUserVision(
 	}
 
 	return result
+}
+
+// callVisionProvider makes a single vision call to the given provider/model,
+// supporting both streaming and non-streaming providers.
+func callVisionProvider(
+	ctx context.Context,
+	provider providers.LLMProvider,
+	model string,
+	msg providers.Message,
+	callOpts map[string]any,
+) (*providers.LLMResponse, error) {
+	visionCtx, visionCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer visionCancel()
+
+	if sp, ok := provider.(providers.StreamingProvider); ok {
+		var fullContent string
+		resp, err := sp.ChatStream(visionCtx, []providers.Message{msg}, nil, model, callOpts,
+			func(accumulated string) { fullContent = accumulated },
+		)
+		if err == nil && resp != nil && resp.Content == "" && fullContent != "" {
+			resp.Content = fullContent
+		}
+		return resp, err
+	}
+	return provider.Chat(visionCtx, []providers.Message{msg}, nil, model, callOpts)
 }
 
 // encodeImageToDataURL base64-encodes an image file into a data URL.

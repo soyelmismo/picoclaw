@@ -294,20 +294,23 @@ func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecutio
 		return false
 	}
 	if exec.activeModelConfig == nil {
-		modelName := ""
-		modelStreaming := false
-		if exec.activeModelConfig != nil {
-			modelName = exec.activeModelConfig.ModelName
-			modelStreaming = exec.activeModelConfig.Streaming.Enabled
-		}
 		logger.DebugCF("agent", "configured streaming not used", map[string]any{
 			"agent_id":         ts.agent.ID,
 			"channel":          ts.channel,
 			"model":            exec.activeModel,
-			"model_name":       modelName,
-			"model_streaming":  modelStreaming,
-			"has_model_config": exec.activeModelConfig != nil,
-			"reason":           "model_streaming_disabled",
+			"has_model_config": false,
+			"reason":           "model_config_missing",
+		})
+		return false
+	}
+	if !exec.activeModelConfig.Streaming.Enabled {
+		logger.DebugCF("agent", "configured streaming not used", map[string]any{
+			"agent_id":        ts.agent.ID,
+			"channel":         ts.channel,
+			"model":           exec.activeModel,
+			"model_name":      exec.activeModelConfig.ModelName,
+			"model_streaming": exec.activeModelConfig.Streaming.Enabled,
+			"reason":          "model_streaming_disabled",
 		})
 		return false
 	}

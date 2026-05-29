@@ -36,7 +36,8 @@ func (p *Pipeline) CallLLM(
 
 	// Pre-process images from tool results via lightweight side vision call
 	// instead of routing the full chat context to the image model.
-	exec.messages = preprocessUserVision(ctx, exec.messages, ts.agent.ImageProvider, ts.agent.ImageModel, ts.agent.MaxTokens)
+	exec.messages = preprocessUserVision(ctx, exec.messages, ts.agent.ImageProvider, ts.agent.ImageModel, ts.agent.MaxTokens,
+		ts.agent.CandidateProviders, ts.agent.ImageFallbacks)
 
 	// Fallback: if any images remain (vision call failed or no image model),
 	// route to the image model so it can handle the full context.
@@ -195,7 +196,15 @@ func (p *Pipeline) CallLLM(
 		}
 
 		if len(exec.activeCandidates) > 1 && p.Fallback != nil {
-			fbResult, fbErr := p.Fallback.ExecuteCandidate(
+			// Use image-specific fallback logic when the active provider is
+			// the image provider. This avoids cooldown checks for image endpoints
+			// and correctly handles image dimension/size errors as non-retriable.
+			isImageFallback := exec.activeProvider == ts.agent.ImageProvider
+			executeFallback := p.Fallback.ExecuteCandidate
+			if isImageFallback {
+				executeFallback = p.Fallback.ExecuteCandidateImage
+			}
+			fbResult, fbErr := executeFallback(
 				providerCtx,
 				exec.activeCandidates,
 				func(ctx context.Context, candidate providers.FallbackCandidate) (*providers.LLMResponse, error) {

@@ -46,7 +46,8 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	// vision model (which can overflow with base64 image data), make a lightweight
 	// side call to the image model with just the image and a description prompt.
 	// The resulting text is injected into the message, replacing the bulky data.
-	messages = preprocessUserVision(ctx, messages, ts.agent.ImageProvider, ts.agent.ImageModel, ts.agent.MaxTokens)
+	messages = preprocessUserVision(ctx, messages, ts.agent.ImageProvider, ts.agent.ImageModel, ts.agent.MaxTokens,
+		ts.agent.CandidateProviders, ts.agent.ImageFallbacks)
 
 	if !ts.opts.NoHistory {
 		toolDefs := filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefs(), ts.profile)

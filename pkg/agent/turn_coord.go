@@ -440,7 +440,8 @@ func (al *AgentLoop) askSideQuestion(
 	// with just the image + description prompt, replacing the bulky data with
 	// text to avoid context overflow in the main chat.
 	if hasMediaRefs(messages) && agent.ImageProvider != nil && agent.ImageModel != "" {
-		messages = preprocessUserVision(ctx, messages, agent.ImageProvider, agent.ImageModel, agent.MaxTokens)
+		messages = preprocessUserVision(ctx, messages, agent.ImageProvider, agent.ImageModel, agent.MaxTokens,
+			agent.CandidateProviders, agent.ImageFallbacks)
 	}
 
 	llmOpts := map[string]any{
