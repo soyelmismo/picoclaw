@@ -2,21 +2,11 @@ import { useTranslation } from "react-i18next"
 
 import { Field, SwitchCardField } from "@/components/shared-form"
 import { Input } from "@/components/ui/input"
+import { asBool, asRecord } from "@/lib/type-coerce"
 
 interface StreamingConfigFieldProps {
   value: unknown
   onChange: (value: Record<string, unknown>) => void
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
-
-function asBool(value: unknown): boolean {
-  return value === true
 }
 
 function numberInputValue(value: unknown): string {

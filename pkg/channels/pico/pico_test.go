@@ -71,7 +71,7 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 
 func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T) {
 	ch := &PicoChannel{
-		progress: channels.NewToolFeedbackAnimator(nil),
+		ToolFeedbackMixin: channels.ToolFeedbackMixin{Progress: channels.NewToolFeedbackAnimator(nil)},
 	}
 	ch.RecordToolFeedbackMessage("pico:chat-1", "msg-1", "🔧 `read_file`")
 
@@ -80,7 +80,7 @@ func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T
 		"pico:chat-1",
 		"final reply",
 		func(_ context.Context, chatID, messageID string, payload map[string]any, contextUsage *bus.ContextUsage) error {
-			if _, ok := ch.currentToolFeedbackMessage(chatID); ok {
+			if _, ok := ch.CurrentToolFeedbackMessage(chatID); ok {
 				t.Fatal("expected tracked tool feedback to be stopped before edit")
 			}
 			if chatID != "pico:chat-1" || messageID != "msg-1" {
@@ -107,7 +107,7 @@ func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T
 
 func TestDismissTrackedToolFeedbackMessage_DeletesProgressMessage(t *testing.T) {
 	ch := &PicoChannel{
-		progress: channels.NewToolFeedbackAnimator(nil),
+		ToolFeedbackMixin: channels.ToolFeedbackMixin{Progress: channels.NewToolFeedbackAnimator(nil)},
 	}
 	ch.RecordToolFeedbackMessage("pico:chat-1", "msg-1", "🔧 `read_file`")
 
@@ -115,7 +115,7 @@ func TestDismissTrackedToolFeedbackMessage_DeletesProgressMessage(t *testing.T) 
 		chatID    string
 		messageID string
 	}
-	ch.deleteMessageFn = func(_ context.Context, chatID string, messageID string) error {
+	ch.DeleteFn = func(_ context.Context, chatID string, messageID string) error {
 		deleted.chatID = chatID
 		deleted.messageID = messageID
 		return nil
@@ -126,7 +126,7 @@ func TestDismissTrackedToolFeedbackMessage_DeletesProgressMessage(t *testing.T) 
 	if deleted.chatID != "pico:chat-1" || deleted.messageID != "msg-1" {
 		t.Fatalf("unexpected delete target: %+v", deleted)
 	}
-	if _, ok := ch.currentToolFeedbackMessage("pico:chat-1"); ok {
+	if _, ok := ch.CurrentToolFeedbackMessage("pico:chat-1"); ok {
 		t.Fatal("expected tracked tool feedback to be cleared after dismissal")
 	}
 }
@@ -182,7 +182,7 @@ func TestSend_ThoughtMessageDoesNotFinalizeTrackedToolFeedback(t *testing.T) {
 		t.Fatal("expected thought message to be delivered")
 	}
 
-	if msgID, ok := ch.currentToolFeedbackMessage("pico:sess-1"); !ok || msgID != "msg-progress" {
+	if msgID, ok := ch.CurrentToolFeedbackMessage("pico:sess-1"); !ok || msgID != "msg-progress" {
 		t.Fatalf("tracked tool feedback = (%q, %v), want (msg-progress, true)", msgID, ok)
 	}
 
@@ -235,7 +235,7 @@ func TestSend_ThoughtMessageDoesNotFinalizeTrackedToolFeedback(t *testing.T) {
 		t.Fatal("expected final reply to finalize tracked tool feedback")
 	}
 
-	if _, ok := ch.currentToolFeedbackMessage("pico:sess-1"); ok {
+	if _, ok := ch.CurrentToolFeedbackMessage("pico:sess-1"); ok {
 		t.Fatal("expected tracked tool feedback to be cleared after final reply")
 	}
 }
@@ -799,7 +799,7 @@ func TestSendMedia_DismissesTrackedToolFeedbackMessage(t *testing.T) {
 		chatID    string
 		messageID string
 	}
-	ch.deleteMessageFn = func(_ context.Context, chatID string, messageID string) error {
+	ch.DeleteFn = func(_ context.Context, chatID string, messageID string) error {
 		deleted.chatID = chatID
 		deleted.messageID = messageID
 		return nil
@@ -830,7 +830,7 @@ func TestSendMedia_DismissesTrackedToolFeedbackMessage(t *testing.T) {
 	if deleted.chatID != "pico:sess-1" || deleted.messageID != "msg-progress" {
 		t.Fatalf("unexpected delete target: %+v", deleted)
 	}
-	if _, ok := ch.currentToolFeedbackMessage("pico:sess-1"); ok {
+	if _, ok := ch.CurrentToolFeedbackMessage("pico:sess-1"); ok {
 		t.Fatal("expected tracked tool feedback to be cleared after media delivery")
 	}
 }

@@ -342,13 +342,7 @@ func (c *WeixinChannel) handleInboundMessage(ctx context.Context, msg WeixinMess
 		return
 	}
 
-	sender := bus.SenderInfo{
-		Platform:    "weixin",
-		PlatformID:  fromUserID,
-		CanonicalID: identity.BuildCanonicalID("weixin", fromUserID),
-		Username:    fromUserID,
-		DisplayName: fromUserID,
-	}
+	sender := identity.NewSenderInfo("weixin", fromUserID, fromUserID, fromUserID)
 
 	if !c.IsAllowedSender(sender) {
 		logger.DebugCF("weixin", "Message rejected by allowlist", map[string]any{

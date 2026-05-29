@@ -1,16 +1,6 @@
-import { IconLoader2 } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 
 interface LogoutConfirmDialogProps {
   open: boolean
@@ -30,28 +20,19 @@ export function LogoutConfirmDialog({
   const { t } = useTranslation()
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {t("credentials.logoutDialog.title")}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {t(
-              "credentials.logoutDialog.description",
-              "This will remove your saved credential for {{provider}}.",
-              { provider: providerLabel },
-            )}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm} variant="destructive">
-            {isSubmitting && <IconLoader2 className="size-4 animate-spin" />}
-            {t("credentials.actions.logout")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDeleteDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t("credentials.logoutDialog.title")}
+      description={t(
+        "credentials.logoutDialog.description",
+        "This will remove your saved credential for {{provider}}.",
+        { provider: providerLabel },
+      )}
+      confirmLabel={t("credentials.actions.logout")}
+      isPending={isSubmitting}
+      cancelLabel={t("common.cancel")}
+      onConfirm={onConfirm}
+    />
   )
 }

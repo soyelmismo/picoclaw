@@ -15,7 +15,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -161,7 +160,7 @@ func (c *SlackChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessa
 		return nil, channels.ErrNotRunning
 	}
 
-	_, channelID, threadTS := resolveSlackMediaOutboundTarget(msg.ChatID, &msg.Context)
+	_, channelID, threadTS := resolveSlackOutboundTarget(msg.ChatID, &msg.Context)
 	if channelID == "" {
 		return nil, fmt.Errorf("invalid slack chat ID: %s", msg.ChatID)
 	}
@@ -287,11 +286,7 @@ func (c *SlackChannel) handleMessageEvent(ev *slackevents.MessageEvent) {
 	}
 
 	// check allowlist to avoid downloading attachments for rejected users
-	sender := bus.SenderInfo{
-		Platform:    "slack",
-		PlatformID:  ev.User,
-		CanonicalID: identity.BuildCanonicalID("slack", ev.User),
-	}
+	sender := identity.NewSenderInfo("slack", ev.User, "", "")
 	if !c.IsAllowedSender(sender) {
 		logger.DebugCF("slack", "Message rejected by allowlist", map[string]any{
 			"user_id": ev.User,
@@ -332,17 +327,7 @@ func (c *SlackChannel) handleMessageEvent(ev *slackevents.MessageEvent) {
 
 	// Helper to register a local file with the media store
 	storeMedia := func(localPath, filename string) string {
-		if store := c.GetMediaStore(); store != nil {
-			ref, err := store.Store(localPath, media.MediaMeta{
-				Filename:      filename,
-				Source:        "slack",
-				CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
-			}, scope)
-			if err == nil {
-				return ref
-			}
-		}
-		return localPath // fallback
+		return c.StoreInboundMedia(localPath, filename, "", "slack", scope)
 	}
 
 	if ev.Message != nil && len(ev.Message.Files) > 0 {
@@ -403,11 +388,7 @@ func (c *SlackChannel) handleAppMention(ev *slackevents.AppMentionEvent) {
 		return
 	}
 
-	if !c.IsAllowedSender(bus.SenderInfo{
-		Platform:    "slack",
-		PlatformID:  ev.User,
-		CanonicalID: identity.BuildCanonicalID("slack", ev.User),
-	}) {
+	if !c.IsAllowedSender(identity.NewSenderInfo("slack", ev.User, "", "")) {
 		logger.DebugCF("slack", "Mention rejected by allowlist", map[string]any{
 			"user_id": ev.User,
 		})
@@ -415,11 +396,7 @@ func (c *SlackChannel) handleAppMention(ev *slackevents.AppMentionEvent) {
 	}
 
 	senderID := ev.User
-	mentionSender := bus.SenderInfo{
-		Platform:    "slack",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("slack", senderID),
-	}
+	mentionSender := identity.NewSenderInfo("slack", senderID, "", "")
 	channelID := ev.Channel
 	threadTS := ev.ThreadTimeStamp
 	messageTS := ev.TimeStamp
@@ -482,11 +459,7 @@ func (c *SlackChannel) handleSlashCommand(event socketmode.Event) {
 		c.socketClient.Ack(*event.Request)
 	}
 
-	cmdSender := bus.SenderInfo{
-		Platform:    "slack",
-		PlatformID:  cmd.UserID,
-		CanonicalID: identity.BuildCanonicalID("slack", cmd.UserID),
-	}
+	cmdSender := identity.NewSenderInfo("slack", cmd.UserID, "", "")
 	if !c.IsAllowedSender(cmdSender) {
 		logger.DebugCF("slack", "Slash command rejected by allowlist", map[string]any{
 			"user_id": cmd.UserID,
@@ -582,17 +555,3 @@ func resolveSlackOutboundTarget(chatID string, outboundCtx *bus.InboundContext) 
 	return deliveryChatID, channelID, threadTS
 }
 
-func resolveSlackMediaOutboundTarget(chatID string, outboundCtx *bus.InboundContext) (string, string, string) {
-	deliveryChatID := strings.TrimSpace(chatID)
-	if deliveryChatID == "" && outboundCtx != nil {
-		deliveryChatID = strings.TrimSpace(outboundCtx.ChatID)
-	}
-	channelID, threadTS := parseSlackChatID(deliveryChatID)
-	if threadTS == "" && outboundCtx != nil {
-		threadTS = strings.TrimSpace(outboundCtx.TopicID)
-		if threadTS != "" && channelID != "" {
-			deliveryChatID = channelID + "/" + threadTS
-		}
-	}
-	return deliveryChatID, channelID, threadTS
-}

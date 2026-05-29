@@ -51,13 +51,6 @@ func outboundMessageIsThought(msg bus.OutboundMessage) bool {
 	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), MessageKindThought)
 }
 
-func outboundMessageIsToolFeedback(msg bus.OutboundMessage) bool {
-	if len(msg.Context.Raw) == 0 {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), "tool_feedback")
-}
-
 func outboundMessageIsToolCalls(msg bus.OutboundMessage) bool {
 	if len(msg.Context.Raw) == 0 {
 		return false
@@ -66,7 +59,7 @@ func outboundMessageIsToolCalls(msg bus.OutboundMessage) bool {
 }
 
 func outboundMessageFinalizesTrackedToolFeedback(msg bus.OutboundMessage) bool {
-	return !outboundMessageIsToolFeedback(msg) &&
+	return !channels.IsToolFeedbackMessage(msg) &&
 		!outboundMessageIsThought(msg) &&
 		!outboundMessageIsToolCalls(msg)
 }
@@ -95,6 +88,7 @@ func (pc *picoConn) close() {
 // It serves as the reference implementation for all optional capability interfaces.
 type PicoChannel struct {
 	*channels.BaseChannel
+	channels.ToolFeedbackMixin
 	bc                 *config.Channel
 	config             *config.PicoSettings
 	upgrader           websocket.Upgrader
@@ -103,8 +97,6 @@ type PicoChannel struct {
 	connsMu            sync.RWMutex
 	ctx                context.Context
 	cancel             context.CancelFunc
-	progress           *channels.ToolFeedbackAnimator
-	deleteMessageFn    func(context.Context, string, string) error
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -145,8 +137,7 @@ func NewPicoChannel(
 		connections:        make(map[string]*picoConn),
 		sessionConnections: make(map[string]map[string]*picoConn),
 	}
-	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
-	ch.deleteMessageFn = ch.DeleteMessage
+	ch.Init(ch.EditMessage, ch.DeleteMessage)
 	return ch, nil
 }
 
@@ -265,8 +256,8 @@ func (c *PicoChannel) Stop(ctx context.Context) error {
 	if c.cancel != nil {
 		c.cancel()
 	}
-	if c.progress != nil {
-		c.progress.StopAll()
+	if c.Progress != nil {
+		c.Progress.StopAll()
 	}
 
 	logger.InfoC("pico", "Pico Protocol channel stopped")
@@ -298,17 +289,17 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 		return nil, channels.ErrNotRunning
 	}
 	isThought := outboundMessageIsThought(msg)
-	isToolFeedback := outboundMessageIsToolFeedback(msg)
+	isToolFeedback := channels.IsToolFeedbackMessage(msg)
 	isToolCalls := outboundMessageIsToolCalls(msg)
 	if isToolFeedback {
-		if msgID, handled, err := c.progress.Update(ctx, msg.ChatID, msg.Content); handled {
+		if msgID, handled, err := c.Progress.Update(ctx, msg.ChatID, msg.Content); handled {
 			if err != nil {
 				return nil, err
 			}
 			return []string{msgID}, nil
 		}
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(msg.ChatID)
 	if outboundMessageFinalizesTrackedToolFeedback(msg) {
 		if msgIDs, handled := c.FinalizeToolFeedbackMessage(ctx, msg); handled {
 			return msgIDs, nil
@@ -352,7 +343,7 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 	if isToolFeedback {
 		c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
 	} else if hasTrackedMsg && outboundMessageFinalizesTrackedToolFeedback(msg) {
-		c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+		c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 	}
 	return []string{msgID}, nil
 }
@@ -379,54 +370,6 @@ func (c *PicoChannel) DeleteMessage(ctx context.Context, chatID string, messageI
 	return c.broadcastToSession(chatID, outMsg)
 }
 
-func (c *PicoChannel) currentToolFeedbackMessage(chatID string) (string, bool) {
-	if c.progress == nil {
-		return "", false
-	}
-	return c.progress.Current(chatID)
-}
-
-func (c *PicoChannel) takeToolFeedbackMessage(chatID string) (string, string, bool) {
-	if c.progress == nil {
-		return "", "", false
-	}
-	return c.progress.Take(chatID)
-}
-
-func (c *PicoChannel) RecordToolFeedbackMessage(chatID, messageID, content string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Record(chatID, messageID, content)
-}
-
-func (c *PicoChannel) ClearToolFeedbackMessage(chatID string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Clear(chatID)
-}
-
-func (c *PicoChannel) DismissToolFeedbackMessage(ctx context.Context, chatID string) {
-	msgID, ok := c.currentToolFeedbackMessage(chatID)
-	if !ok {
-		return
-	}
-	c.dismissTrackedToolFeedbackMessage(ctx, chatID, msgID)
-}
-
-func (c *PicoChannel) dismissTrackedToolFeedbackMessage(ctx context.Context, chatID, messageID string) {
-	if strings.TrimSpace(chatID) == "" || strings.TrimSpace(messageID) == "" {
-		return
-	}
-	c.ClearToolFeedbackMessage(chatID)
-	deleteFn := c.deleteMessageFn
-	if deleteFn == nil {
-		deleteFn = c.DeleteMessage
-	}
-	_ = deleteFn(ctx, chatID, messageID)
-}
-
 func (c *PicoChannel) finalizeTrackedToolFeedbackMessage(
 	ctx context.Context,
 	chatID string,
@@ -435,7 +378,7 @@ func (c *PicoChannel) finalizeTrackedToolFeedbackMessage(
 	payload map[string]any,
 	contextUsage *bus.ContextUsage,
 ) ([]string, bool) {
-	msgID, baseContent, ok := c.takeToolFeedbackMessage(chatID)
+	msgID, baseContent, ok := c.TakeToolFeedbackMessage(chatID)
 	if !ok || editFn == nil {
 		return nil, false
 	}
@@ -732,7 +675,7 @@ func (c *PicoChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessag
 	if !c.IsRunning() {
 		return nil, channels.ErrNotRunning
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(msg.ChatID)
 
 	store := c.GetMediaStore()
 	if store == nil {
@@ -812,7 +755,7 @@ func (c *PicoChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessag
 		return nil, err
 	}
 	if hasTrackedMsg {
-		c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+		c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 	}
 
 	return []string{msgID}, nil
@@ -1207,11 +1150,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		"media":      len(media),
 	})
 
-	sender := bus.SenderInfo{
-		Platform:    "pico",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("pico", senderID),
-	}
+	sender := identity.NewSenderInfo("pico", senderID, "", "")
 
 	if !c.IsAllowedSender(sender) {
 		return

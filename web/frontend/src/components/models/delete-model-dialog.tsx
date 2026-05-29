@@ -1,18 +1,8 @@
-import { IconLoader2 } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { type ModelInfo, deleteModel } from "@/api/models"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog"
 
 interface DeleteModelDialogProps {
   model: ModelInfo | null
@@ -47,28 +37,15 @@ export function DeleteModelDialog({
   }
 
   return (
-    <AlertDialog open={model !== null} onOpenChange={(v) => !v && onClose()}>
-      <AlertDialogContent size="sm">
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t("models.delete.title")}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t("models.delete.description", { name: model?.model_name })}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={onClose} disabled={deleting}>
-            {t("common.cancel")}
-          </AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={handleConfirm}
-            disabled={deleting}
-          >
-            {deleting && <IconLoader2 className="size-4 animate-spin" />}
-            {t("models.delete.confirm")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDeleteDialog
+      open={model !== null}
+      onOpenChange={(v) => !v && onClose()}
+      title={t("models.delete.title")}
+      description={t("models.delete.description", { name: model?.model_name })}
+      confirmLabel={t("models.delete.confirm")}
+      isPending={deleting}
+      cancelLabel={t("common.cancel")}
+      onConfirm={handleConfirm}
+    />
   )
 }

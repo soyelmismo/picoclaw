@@ -179,11 +179,27 @@ export function useCredentialsPage() {
     return actionTokenRef.current === token
   }, [])
 
+  const withAction = useCallback(
+    async (
+      actionID: string,
+      action: () => Promise<void>,
+      errorMessage: string,
+    ) => {
+      setActiveAction(actionID)
+      setError("")
+      try {
+        await action()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : errorMessage)
+        setActiveAction("")
+      }
+    },
+    [],
+  )
+
   const startBrowserOAuth = useCallback(
     async (provider: OAuthProvider) => {
       const actionToken = bumpActionToken()
-      setActiveAction(`${provider}:browser`)
-      setError("")
 
       const authTab = window.open("", "_blank")
       if (!authTab) {
@@ -195,99 +211,85 @@ export function useCredentialsPage() {
         return
       }
 
-      try {
-        const resp = await loginOAuth({ provider, method: "browser" })
-        if (!isActionTokenCurrent(actionToken)) {
-          authTab.close()
-          return
-        }
-        if (!resp.auth_url || !resp.flow_id) {
-          throw new Error(t("credentials.errors.invalidBrowserResponse"))
-        }
+      await withAction(`${provider}:browser`, async () => {
+        try {
+          const resp = await loginOAuth({ provider, method: "browser" })
+          if (!isActionTokenCurrent(actionToken)) {
+            authTab.close()
+            return
+          }
+          if (!resp.auth_url || !resp.flow_id) {
+            throw new Error(t("credentials.errors.invalidBrowserResponse"))
+          }
 
-        authTab.location.href = resp.auth_url
+          authTab.location.href = resp.auth_url
 
-        setActiveFlow({
-          flow_id: resp.flow_id,
-          provider,
-          method: "browser",
-          status: "pending",
-          expires_at: resp.expires_at,
-        })
-        setWatchFlowID(resp.flow_id)
-        setWatchMode("status")
-        setPollIntervalMs(2000)
-      } catch (err) {
-        if (!isActionTokenCurrent(actionToken)) {
+          setActiveFlow({
+            flow_id: resp.flow_id,
+            provider,
+            method: "browser",
+            status: "pending",
+            expires_at: resp.expires_at,
+          })
+          setWatchFlowID(resp.flow_id)
+          setWatchMode("status")
+          setPollIntervalMs(2000)
+        } catch (err) {
           authTab.close()
-          return
+          if (!isActionTokenCurrent(actionToken)) {
+            return
+          }
+          throw err
         }
-        authTab.close()
-        setActiveAction("")
-        setError(
-          err instanceof Error
-            ? err.message
-            : t("credentials.errors.loginFailed"),
-        )
-      }
+      }, t("credentials.errors.loginFailed"))
     },
-    [bumpActionToken, isActionTokenCurrent, t],
+    [bumpActionToken, isActionTokenCurrent, t, withAction],
   )
 
   const startOpenAIDeviceCode = useCallback(async () => {
     const actionToken = bumpActionToken()
-    setActiveAction("openai:device")
-    setError("")
+    await withAction("openai:device", async () => {
+      try {
+        const resp = await loginOAuth({
+          provider: "openai",
+          method: "device_code",
+        })
+        if (!isActionTokenCurrent(actionToken)) {
+          return
+        }
+        if (!resp.flow_id || !resp.user_code || !resp.verify_url) {
+          throw new Error(t("credentials.errors.invalidDeviceResponse"))
+        }
 
-    try {
-      const resp = await loginOAuth({
-        provider: "openai",
-        method: "device_code",
-      })
-      if (!isActionTokenCurrent(actionToken)) {
-        return
-      }
-      if (!resp.flow_id || !resp.user_code || !resp.verify_url) {
-        throw new Error(t("credentials.errors.invalidDeviceResponse"))
-      }
+        const flow: OAuthFlowState = {
+          flow_id: resp.flow_id,
+          provider: "openai",
+          method: "device_code",
+          status: "pending",
+          user_code: resp.user_code,
+          verify_url: resp.verify_url,
+          interval: resp.interval,
+          expires_at: resp.expires_at,
+        }
 
-      const flow: OAuthFlowState = {
-        flow_id: resp.flow_id,
-        provider: "openai",
-        method: "device_code",
-        status: "pending",
-        user_code: resp.user_code,
-        verify_url: resp.verify_url,
-        interval: resp.interval,
-        expires_at: resp.expires_at,
+        setDeviceFlow(flow)
+        setDeviceSheetOpen(true)
+        setActiveFlow(flow)
+        setWatchFlowID(resp.flow_id)
+        setWatchMode("poll")
+        setPollIntervalMs(Math.max(1000, (resp.interval ?? 5) * 1000))
+      } catch (err) {
+        if (!isActionTokenCurrent(actionToken)) {
+          return
+        }
+        throw err
       }
-
-      setDeviceFlow(flow)
-      setDeviceSheetOpen(true)
-      setActiveFlow(flow)
-      setWatchFlowID(resp.flow_id)
-      setWatchMode("poll")
-      setPollIntervalMs(Math.max(1000, (resp.interval ?? 5) * 1000))
-    } catch (err) {
-      if (!isActionTokenCurrent(actionToken)) {
-        return
-      }
-      setActiveAction("")
-      setError(
-        err instanceof Error
-          ? err.message
-          : t("credentials.errors.loginFailed"),
-      )
-    }
-  }, [bumpActionToken, isActionTokenCurrent, t])
+    }, t("credentials.errors.loginFailed"))
+  }, [bumpActionToken, isActionTokenCurrent, t, withAction])
 
   const saveToken = useCallback(
     async (provider: OAuthProvider, token: string) => {
-      const actionID = `${provider}:token`
-      setActiveAction(actionID)
-      setError("")
-
-      try {
+      await withAction(`${provider}:token`, async () => {
         await loginOAuth({ provider, method: "token", token })
         if (provider === "openai") {
           setOpenAIToken("")
@@ -296,39 +298,21 @@ export function useCredentialsPage() {
           setAnthropicToken("")
         }
         await loadProviders()
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : t("credentials.errors.loginFailed"),
-        )
-      } finally {
         setActiveAction("")
-      }
+      }, t("credentials.errors.loginFailed"))
     },
-    [loadProviders, t],
+    [loadProviders, t, withAction],
   )
 
   const doLogout = useCallback(
     async (provider: OAuthProvider) => {
-      const actionID = `${provider}:logout`
-      setActiveAction(actionID)
-      setError("")
-
-      try {
+      await withAction(`${provider}:logout`, async () => {
         await logoutOAuth(provider)
         await loadProviders()
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : t("credentials.errors.logoutFailed"),
-        )
-      } finally {
         setActiveAction("")
-      }
+      }, t("credentials.errors.logoutFailed"))
     },
-    [loadProviders, t],
+    [loadProviders, t, withAction],
   )
 
   const askLogout = useCallback((provider: OAuthProvider) => {

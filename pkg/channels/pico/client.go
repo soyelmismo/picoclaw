@@ -271,11 +271,7 @@ func (c *PicoClientChannel) handleServerMessage(pc *picoConn, msg PicoMessage) {
 
 	chatID := "pico_client:" + sessionID
 	senderID := "pico-remote"
-	sender := bus.SenderInfo{
-		Platform:    "pico_client",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("pico_client", senderID),
-	}
+	sender := identity.NewSenderInfo("pico_client", senderID, "", "")
 
 	if !c.IsAllowedSender(sender) {
 		return

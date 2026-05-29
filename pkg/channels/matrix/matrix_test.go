@@ -44,16 +44,16 @@ func TestMatrixLocalpartMentionRegexp(t *testing.T) {
 
 func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T) {
 	ch := &MatrixChannel{
-		progress: channels.NewToolFeedbackAnimator(nil),
+		ToolFeedbackMixin: channels.ToolFeedbackMixin{Progress: channels.NewToolFeedbackAnimator(nil)},
 	}
 	ch.RecordToolFeedbackMessage("!room:matrix.org", "$event1", "🔧 `read_file`")
 
-	msgIDs, handled := ch.finalizeTrackedToolFeedbackMessage(
+	msgIDs, handled := ch.FinalizeTrackedToolFeedbackMessage(
 		context.Background(),
 		"!room:matrix.org",
 		"final reply",
 		func(_ context.Context, chatID, messageID, content string) error {
-			if _, ok := ch.currentToolFeedbackMessage(chatID); ok {
+			if _, ok := ch.CurrentToolFeedbackMessage(chatID); ok {
 				t.Fatal("expected tracked tool feedback to be stopped before edit")
 			}
 			if chatID != "!room:matrix.org" || messageID != "$event1" || content != "final reply" {

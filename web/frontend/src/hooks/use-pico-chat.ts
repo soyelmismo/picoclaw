@@ -6,13 +6,8 @@ import {
   sendChatMessage,
   switchChatSession,
 } from "@/features/chat/controller"
+import { normalizeUnixTimestamp } from "@/features/chat/state"
 import { chatAtom } from "@/store/chat"
-
-const UNIX_MS_THRESHOLD = 1e12
-
-function normalizeUnixTimestamp(timestamp: number): number {
-  return timestamp < UNIX_MS_THRESHOLD ? timestamp * 1000 : timestamp
-}
 
 function parseTimestamp(dateRaw: number | string | Date) {
   if (typeof dateRaw === "number") {

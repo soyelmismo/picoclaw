@@ -220,12 +220,7 @@ func (c *DingTalkChannel) onChatBotMessageReceived(
 	if resolvedSenderID == "" {
 		resolvedSenderID = platformID
 	}
-	sender := bus.SenderInfo{
-		Platform:    "dingtalk",
-		PlatformID:  platformID,
-		CanonicalID: identity.BuildCanonicalID("dingtalk", platformID),
-		DisplayName: senderNick,
-	}
+	sender := identity.NewSenderInfo("dingtalk", platformID, "", senderNick)
 
 	if !c.IsAllowedSender(sender) {
 		return nil, nil

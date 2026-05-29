@@ -35,25 +35,11 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { useGateway } from "@/hooks/use-gateway"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
+import { asBool, asRecord, asString } from "@/lib/type-coerce"
 import { refreshGatewayState } from "@/store/gateway"
 
 interface ChannelConfigPageProps {
   channelName: string
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : ""
-}
-
-function asBool(value: unknown): boolean {
-  return value === true
 }
 
 function setRecordValueByPath(
@@ -533,19 +519,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
     }
   }
 
-  const handleWeixinBindSuccess = useCallback(async () => {
-    try {
-      setEnabled(true)
-      await Promise.all([loadData(true), refreshGatewayState({ force: true })])
-    } catch (e) {
-      const message =
-        e instanceof Error ? e.message : t("channels.page.saveError")
-      setServerError(message)
-      await loadData(true)
-    }
-  }, [loadData, t])
-
-  const handleWecomBindSuccess = useCallback(async () => {
+  const handleBindSuccess = useCallback(async () => {
     try {
       setEnabled(true)
       await Promise.all([loadData(true), refreshGatewayState({ force: true })])
@@ -639,7 +613,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
             config={editConfig}
             onChange={handleChange}
             isEdit={isEdit}
-            onBindSuccess={() => void handleWeixinBindSuccess()}
+            onBindSuccess={() => void handleBindSuccess()}
             registerArrayFieldFlusher={registerArrayFieldFlusher}
             arrayFieldResetVersion={arrayFieldResetVersion}
           />
@@ -650,7 +624,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
             <WecomForm
               config={editConfig}
               isEdit={isEdit}
-              onBindSuccess={() => void handleWecomBindSuccess()}
+              onBindSuccess={() => void handleBindSuccess()}
               onEnabledChange={(nextEnabled) =>
                 void handleWecomEnabledChange(nextEnabled)
               }

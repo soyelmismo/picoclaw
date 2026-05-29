@@ -1,4 +1,4 @@
-import { launcherFetch } from "@/api/http"
+import { apiRequest } from "@/api/request"
 
 // API client for Pico Channel configuration.
 
@@ -15,26 +15,28 @@ interface PicoSetupResponse {
   changed: boolean
 }
 
-const BASE_URL = ""
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await launcherFetch(`${BASE_URL}${path}`, options)
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`)
-  }
-  return res.json() as Promise<T>
-}
-
 export async function getPicoInfo(): Promise<PicoInfoResponse> {
-  return request<PicoInfoResponse>("/api/pico/info")
+  return apiRequest<PicoInfoResponse>(
+    "/api/pico/info",
+    undefined,
+    "simple",
+  )
 }
 
 export async function regenPicoToken(): Promise<PicoInfoResponse> {
-  return request<PicoInfoResponse>("/api/pico/token", { method: "POST" })
+  return apiRequest<PicoInfoResponse>(
+    "/api/pico/token",
+    { method: "POST" },
+    "simple",
+  )
 }
 
 export async function setupPico(): Promise<PicoSetupResponse> {
-  return request<PicoSetupResponse>("/api/pico/setup", { method: "POST" })
+  return apiRequest<PicoSetupResponse>(
+    "/api/pico/setup",
+    { method: "POST" },
+    "simple",
+  )
 }
 
 export type { PicoInfoResponse, PicoSetupResponse }

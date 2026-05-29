@@ -38,6 +38,7 @@ const errCodeTenantTokenInvalid = 99991663
 
 type FeishuChannel struct {
 	*channels.BaseChannel
+	channels.ToolFeedbackMixin
 	bc         *config.Channel
 	config     *config.FeishuSettings
 	client     *lark.Client
@@ -49,9 +50,6 @@ type FeishuChannel struct {
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
-
-	progress        *channels.ToolFeedbackAnimator
-	deleteMessageFn func(context.Context, string, string) error
 }
 
 type cachedMessage struct {
@@ -77,8 +75,7 @@ func NewFeishuChannel(bc *config.Channel, cfg *config.FeishuSettings, bus *bus.M
 		tokenCache:  tc,
 		client:      lark.NewClient(cfg.AppID, cfg.AppSecret.String(), opts...),
 	}
-	ch.deleteMessageFn = ch.deleteMessageAPI
-	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.Init(ch.EditMessage, ch.deleteMessageAPI)
 	ch.SetOwner(ch)
 	return ch, nil
 }
@@ -137,8 +134,8 @@ func (c *FeishuChannel) Stop(ctx context.Context) error {
 	}
 	c.wsClient = nil
 	c.mu.Unlock()
-	if c.progress != nil {
-		c.progress.StopAll()
+	if c.Progress != nil {
+		c.Progress.StopAll()
 	}
 
 	c.SetRunning(false)
@@ -157,9 +154,9 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		return nil, fmt.Errorf("chat ID is empty: %w", channels.ErrSendFailed)
 	}
 
-	isToolFeedback := outboundMessageIsToolFeedback(msg)
+	isToolFeedback := channels.IsToolFeedbackMessage(msg)
 	if isToolFeedback {
-		if msgID, handled, err := c.progress.Update(ctx, msg.ChatID, msg.Content); handled {
+		if msgID, handled, err := c.Progress.Update(ctx, msg.ChatID, msg.Content); handled {
 			if err != nil {
 				// Feishu can fall back to plain text for a previous progress
 				// message, and those messages cannot be patched through the card
@@ -175,7 +172,7 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 			return msgIDs, nil
 		}
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(msg.ChatID)
 
 	// Build interactive card with markdown content
 	sendContent := msg.Content
@@ -192,7 +189,7 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		if isToolFeedback {
 			c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
 		} else if hasTrackedMsg {
-			c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+			c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 		}
 		return []string{msgID}, nil
 	}
@@ -203,7 +200,7 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		if isToolFeedback {
 			c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
 		} else if hasTrackedMsg {
-			c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+			c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 		}
 		return []string{msgID}, nil
 	}
@@ -225,7 +222,7 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 			if isToolFeedback {
 				c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
 			} else if hasTrackedMsg {
-				c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+				c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 			}
 			return []string{msgID}, nil
 		}
@@ -263,7 +260,7 @@ func (c *FeishuChannel) EditMessage(ctx context.Context, chatID, messageID, cont
 
 // DeleteMessage implements channels.MessageDeleter.
 func (c *FeishuChannel) DeleteMessage(ctx context.Context, chatID, messageID string) error {
-	deleteFn := c.deleteMessageFn
+	deleteFn := c.DeleteFn
 	if deleteFn == nil {
 		deleteFn = c.deleteMessageAPI
 	}
@@ -327,91 +324,12 @@ func (c *FeishuChannel) SendPlaceholder(ctx context.Context, chatID string) (str
 	return "", nil
 }
 
-func outboundMessageIsToolFeedback(msg bus.OutboundMessage) bool {
-	if len(msg.Context.Raw) == 0 {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), "tool_feedback")
-}
-
-func (c *FeishuChannel) currentToolFeedbackMessage(chatID string) (string, bool) {
-	if c.progress == nil {
-		return "", false
-	}
-	return c.progress.Current(chatID)
-}
-
-func (c *FeishuChannel) takeToolFeedbackMessage(chatID string) (string, string, bool) {
-	if c.progress == nil {
-		return "", "", false
-	}
-	return c.progress.Take(chatID)
-}
-
-func (c *FeishuChannel) RecordToolFeedbackMessage(chatID, messageID, content string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Record(chatID, messageID, content)
-}
-
-func (c *FeishuChannel) ClearToolFeedbackMessage(chatID string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Clear(chatID)
-}
-
-func (c *FeishuChannel) DismissToolFeedbackMessage(ctx context.Context, chatID string) {
-	msgID, ok := c.currentToolFeedbackMessage(chatID)
-	if !ok {
-		return
-	}
-	c.dismissTrackedToolFeedbackMessage(ctx, chatID, msgID)
-}
-
 func (c *FeishuChannel) resetTrackedToolFeedbackAfterEditFailure(ctx context.Context, chatID string) {
-	msgID, ok := c.currentToolFeedbackMessage(chatID)
+	msgID, ok := c.CurrentToolFeedbackMessage(chatID)
 	if !ok {
 		return
 	}
-	c.dismissTrackedToolFeedbackMessage(ctx, chatID, msgID)
-}
-
-func (c *FeishuChannel) dismissTrackedToolFeedbackMessage(ctx context.Context, chatID, messageID string) {
-	if strings.TrimSpace(chatID) == "" || strings.TrimSpace(messageID) == "" {
-		return
-	}
-	c.ClearToolFeedbackMessage(chatID)
-	deleteFn := c.deleteMessageFn
-	if deleteFn == nil {
-		deleteFn = c.deleteMessageAPI
-	}
-	_ = deleteFn(ctx, chatID, messageID)
-}
-
-func (c *FeishuChannel) finalizeTrackedToolFeedbackMessage(
-	ctx context.Context,
-	chatID string,
-	content string,
-	editFn func(context.Context, string, string, string) error,
-) ([]string, bool) {
-	msgID, baseContent, ok := c.takeToolFeedbackMessage(chatID)
-	if !ok || editFn == nil {
-		return nil, false
-	}
-	if err := editFn(ctx, chatID, msgID, content); err != nil {
-		c.RecordToolFeedbackMessage(chatID, msgID, baseContent)
-		return nil, false
-	}
-	return []string{msgID}, true
-}
-
-func (c *FeishuChannel) FinalizeToolFeedbackMessage(ctx context.Context, msg bus.OutboundMessage) ([]string, bool) {
-	if outboundMessageIsToolFeedback(msg) {
-		return nil, false
-	}
-	return c.finalizeTrackedToolFeedbackMessage(ctx, msg.ChatID, msg.Content, c.EditMessage)
+	c.DismissTrackedToolFeedbackMessage(ctx, chatID, msgID)
 }
 
 // ReactToMessage implements channels.ReactionCapable.
@@ -486,7 +404,7 @@ func (c *FeishuChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	if !c.IsRunning() {
 		return nil, channels.ErrNotRunning
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(msg.ChatID)
 
 	if msg.ChatID == "" {
 		return nil, fmt.Errorf("chat ID is empty: %w", channels.ErrSendFailed)
@@ -504,7 +422,7 @@ func (c *FeishuChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	}
 
 	if hasTrackedMsg {
-		c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+		c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 	}
 
 	return nil, nil
@@ -583,11 +501,7 @@ func (c *FeishuChannel) handleMessageReceive(ctx context.Context, event *larkim.
 
 	// Check allowlist early to avoid downloading media for rejected senders.
 	// BaseChannel.HandleMessage will check again, but this avoids wasted network I/O.
-	senderInfo := bus.SenderInfo{
-		Platform:    "feishu",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("feishu", senderID),
-	}
+	senderInfo := identity.NewSenderInfo("feishu", senderID, "", "")
 	if !c.IsAllowedSender(senderInfo) {
 		return nil
 	}

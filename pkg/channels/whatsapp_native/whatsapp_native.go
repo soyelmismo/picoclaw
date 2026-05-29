@@ -378,12 +378,7 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 		peerKind = "group"
 	}
 	messageID := evt.Info.ID
-	sender := bus.SenderInfo{
-		Platform:    "whatsapp",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("whatsapp", senderID),
-		DisplayName: evt.Info.PushName,
-	}
+	sender := identity.NewSenderInfo("whatsapp", senderID, "", evt.Info.PushName)
 
 	if !c.IsAllowedSender(sender) {
 		return

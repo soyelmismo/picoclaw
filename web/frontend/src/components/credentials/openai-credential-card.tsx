@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "react-i18next"
 
 import type { OAuthProviderStatus } from "@/api/oauth"
+import { CredentialCardLogoutFooter } from "@/components/credentials/credential-card-logout-footer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
@@ -143,18 +144,12 @@ export function OpenAICredentialCard({
       }
       footer={
         status?.logged_in ? (
-          <Button
-            variant="ghost"
-            size="sm"
+          <CredentialCardLogoutFooter
+            activeAction={activeAction}
+            actionKey="openai:logout"
             disabled={actionBusy}
-            onClick={onAskLogout}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            {activeAction === "openai:logout" && (
-              <IconLoader2 className="size-4 animate-spin" />
-            )}
-            {t("credentials.actions.logout")}
-          </Button>
+            onAskLogout={onAskLogout}
+          />
         ) : null
       }
     />

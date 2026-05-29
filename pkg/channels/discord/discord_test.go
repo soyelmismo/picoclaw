@@ -154,7 +154,8 @@ func TestSend_NonToolFeedbackDeletesTrackedProgressMessage(t *testing.T) {
 		typingStop:  make(map[string]chan struct{}),
 		voiceSSRC:   make(map[string]map[uint32]string),
 	}
-	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.Progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.EditFn = ch.EditMessage
 	ch.SetRunning(true)
 	ch.RecordToolFeedbackMessage("chat-1", "prog-1", "🔧 `read_file`")
 
@@ -172,7 +173,7 @@ func TestSend_NonToolFeedbackDeletesTrackedProgressMessage(t *testing.T) {
 	if got, want := ids, []string{"prog-1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Send() ids = %v, want %v", got, want)
 	}
-	if _, ok := ch.currentToolFeedbackMessage("chat-1"); ok {
+	if _, ok := ch.CurrentToolFeedbackMessage("chat-1"); ok {
 		t.Fatal("expected tracked tool feedback message to be cleared")
 	}
 
@@ -232,16 +233,16 @@ func TestEditMessage_UsesContextCancellation(t *testing.T) {
 
 func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T) {
 	ch := &DiscordChannel{
-		progress: channels.NewToolFeedbackAnimator(nil),
+		ToolFeedbackMixin: channels.ToolFeedbackMixin{Progress: channels.NewToolFeedbackAnimator(nil)},
 	}
 	ch.RecordToolFeedbackMessage("chat-1", "msg-1", "🔧 `read_file`")
 
-	msgIDs, handled := ch.finalizeTrackedToolFeedbackMessage(
+	msgIDs, handled := ch.FinalizeTrackedToolFeedbackMessage(
 		context.Background(),
 		"chat-1",
 		"final reply",
 		func(_ context.Context, chatID, messageID, content string) error {
-			if _, ok := ch.currentToolFeedbackMessage(chatID); ok {
+			if _, ok := ch.CurrentToolFeedbackMessage(chatID); ok {
 				t.Fatal("expected tracked tool feedback to be stopped before edit")
 			}
 			if chatID != "chat-1" || messageID != "msg-1" || content != "final reply" {
@@ -306,7 +307,8 @@ func TestSend_NonToolFeedbackFinalizerStillStartsTTS(t *testing.T) {
 	ch.playTTSFn = func(_ context.Context, _ *discordgo.VoiceConnection, text string, _ uint64) {
 		ttsStarted <- text
 	}
-	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.Progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.EditFn = ch.EditMessage
 	ch.SetRunning(true)
 	ch.RecordToolFeedbackMessage("chat-1", "prog-1", "🔧 `read_file`")
 

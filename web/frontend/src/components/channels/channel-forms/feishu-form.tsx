@@ -7,11 +7,12 @@ import {
 } from "@/components/channels/channel-array-list-field"
 import {
   asStringArray,
-  parseAllowFromInput,
   parseConservativeStringListInput,
 } from "@/components/channels/channel-array-utils"
+import { AllowFromField } from "@/components/channels/allow-from-field"
 import { getSecretInputPlaceholder } from "@/components/channels/channel-config-fields"
 import { Field, KeyInput, SwitchCardField } from "@/components/shared-form"
+import { asBool, asRecord, asString } from "@/lib/type-coerce"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
@@ -25,21 +26,6 @@ interface FeishuFormProps {
     flusher: ArrayFieldFlusher | null,
   ) => void
   arrayFieldResetVersion?: number
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : ""
-}
-
-function asBool(value: unknown): boolean {
-  return typeof value === "boolean" ? value : false
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 export function FeishuForm({
@@ -123,14 +109,9 @@ export function FeishuForm({
             />
           </Field>
 
-          <ChannelArrayListField
-            label={t("channels.field.allowFrom")}
-            hint={t("channels.form.desc.allowFrom")}
-            value={asStringArray(config.allow_from)}
+          <AllowFromField
+            value={config.allow_from}
             onChange={(value) => onChange("allow_from", value)}
-            placeholder={t("channels.field.allowFromPlaceholder")}
-            parser={parseAllowFromInput}
-            fieldPath="allow_from"
             registerFlusher={registerArrayFieldFlusher}
             resetVersion={arrayFieldResetVersion}
           />

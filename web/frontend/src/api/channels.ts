@@ -1,4 +1,4 @@
-import { launcherFetch } from "@/api/http"
+import { apiRequest } from "@/api/request"
 
 export type ChannelConfig = Record<string, unknown>
 export type AppConfig = Record<string, unknown>
@@ -26,43 +26,18 @@ interface ConfigActionResponse {
   errors?: string[]
 }
 
-const BASE_URL = ""
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await launcherFetch(`${BASE_URL}${path}`, options)
-  if (!res.ok) {
-    let message = `API error: ${res.status} ${res.statusText}`
-    try {
-      const body = (await res.json()) as {
-        error?: string
-        errors?: string[]
-        status?: string
-      }
-      if (Array.isArray(body.errors) && body.errors.length > 0) {
-        message = body.errors.join("; ")
-      } else if (typeof body.error === "string" && body.error.trim() !== "") {
-        message = body.error
-      }
-    } catch {
-      // Keep default fallback message if response body is not JSON.
-    }
-    throw new Error(message)
-  }
-  return res.json() as Promise<T>
-}
-
 export async function getChannelsCatalog(): Promise<ChannelsCatalogResponse> {
-  return request<ChannelsCatalogResponse>("/api/channels/catalog")
+  return apiRequest<ChannelsCatalogResponse>("/api/channels/catalog")
 }
 
 export async function getAppConfig(): Promise<AppConfig> {
-  return request<AppConfig>("/api/config")
+  return apiRequest<AppConfig>("/api/config")
 }
 
 export async function getChannelConfig(
   channelName: string,
 ): Promise<ChannelConfigResponse> {
-  return request<ChannelConfigResponse>(
+  return apiRequest<ChannelConfigResponse>(
     `/api/channels/${encodeURIComponent(channelName)}/config`,
   )
 }
@@ -70,7 +45,7 @@ export async function getChannelConfig(
 export async function patchAppConfig(
   patch: Record<string, unknown>,
 ): Promise<ConfigActionResponse> {
-  return request<ConfigActionResponse>("/api/config", {
+  return apiRequest<ConfigActionResponse>("/api/config", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -78,7 +53,7 @@ export async function patchAppConfig(
 }
 
 export async function resetAppConfig(): Promise<ConfigActionResponse> {
-  return request<ConfigActionResponse>("/api/config/reset", {
+  return apiRequest<ConfigActionResponse>("/api/config/reset", {
     method: "POST",
   })
 }
@@ -102,25 +77,27 @@ export interface WecomFlowResponse {
 }
 
 export async function startWeixinFlow(): Promise<WeixinFlowResponse> {
-  return request<WeixinFlowResponse>("/api/weixin/flows", { method: "POST" })
+  return apiRequest<WeixinFlowResponse>("/api/weixin/flows", {
+    method: "POST",
+  })
 }
 
 export async function pollWeixinFlow(
   flowID: string,
 ): Promise<WeixinFlowResponse> {
-  return request<WeixinFlowResponse>(
+  return apiRequest<WeixinFlowResponse>(
     `/api/weixin/flows/${encodeURIComponent(flowID)}`,
   )
 }
 
 export async function startWecomFlow(): Promise<WecomFlowResponse> {
-  return request<WecomFlowResponse>("/api/wecom/flows", { method: "POST" })
+  return apiRequest<WecomFlowResponse>("/api/wecom/flows", { method: "POST" })
 }
 
 export async function pollWecomFlow(
   flowID: string,
 ): Promise<WecomFlowResponse> {
-  return request<WecomFlowResponse>(
+  return apiRequest<WecomFlowResponse>(
     `/api/wecom/flows/${encodeURIComponent(flowID)}`,
   )
 }

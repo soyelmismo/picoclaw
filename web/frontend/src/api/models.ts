@@ -1,4 +1,4 @@
-import { launcherFetch } from "@/api/http"
+import { apiRequest } from "@/api/request"
 import { refreshGatewayState } from "@/store/gateway"
 
 // API client for model list management.
@@ -65,61 +65,61 @@ interface ModelActionResponse {
   default_model?: string
 }
 
-const BASE_URL = ""
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await launcherFetch(`${BASE_URL}${path}`, options)
-  if (!res.ok) {
-    let detail = ""
-    try {
-      detail = await res.text()
-    } catch {
-      // ignore
-    }
-    throw new Error(detail || `API error: ${res.status} ${res.statusText}`)
-  }
-  return res.json() as Promise<T>
-}
-
 export async function getModels(): Promise<ModelsListResponse> {
-  return request<ModelsListResponse>("/api/models")
+  return apiRequest<ModelsListResponse>("/api/models", undefined, "text-detail")
 }
 
 export async function addModel(
   model: Partial<ModelInfo>,
 ): Promise<ModelActionResponse> {
-  return request<ModelActionResponse>("/api/models", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(model),
-  })
+  return apiRequest<ModelActionResponse>(
+    "/api/models",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(model),
+    },
+    "text-detail",
+  )
 }
 
 export async function updateModel(
   index: number,
   model: Partial<ModelInfo>,
 ): Promise<ModelActionResponse> {
-  return request<ModelActionResponse>(`/api/models/${index}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(model),
-  })
+  return apiRequest<ModelActionResponse>(
+    `/api/models/${index}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(model),
+    },
+    "text-detail",
+  )
 }
 
 export async function deleteModel(index: number): Promise<ModelActionResponse> {
-  return request<ModelActionResponse>(`/api/models/${index}`, {
-    method: "DELETE",
-  })
+  return apiRequest<ModelActionResponse>(
+    `/api/models/${index}`,
+    {
+      method: "DELETE",
+    },
+    "text-detail",
+  )
 }
 
 export async function setDefaultModel(
   modelName: string,
 ): Promise<ModelActionResponse> {
-  const response = await request<ModelActionResponse>("/api/models/default", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model_name: modelName }),
-  })
+  const response = await apiRequest<ModelActionResponse>(
+    "/api/models/default",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_name: modelName }),
+    },
+    "text-detail",
+  )
 
   await refreshGatewayState()
   return response
@@ -133,9 +133,13 @@ export interface TestModelResponse {
 }
 
 export async function testModel(index: number): Promise<TestModelResponse> {
-  return request<TestModelResponse>(`/api/models/${index}/test`, {
-    method: "POST",
-  })
+  return apiRequest<TestModelResponse>(
+    `/api/models/${index}/test`,
+    {
+      method: "POST",
+    },
+    "text-detail",
+  )
 }
 
 export interface TestModelInlineRequest {
@@ -150,11 +154,15 @@ export interface TestModelInlineRequest {
 export async function testModelInline(
   params: TestModelInlineRequest,
 ): Promise<TestModelResponse> {
-  return request<TestModelResponse>("/api/models/test-inline", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  })
+  return apiRequest<TestModelResponse>(
+    "/api/models/test-inline",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    "text-detail",
+  )
 }
 
 export interface UpstreamModel {
@@ -178,11 +186,15 @@ export interface FetchModelsResponse {
 export async function fetchUpstreamModels(
   req: FetchModelsRequest,
 ): Promise<FetchModelsResponse> {
-  return request<FetchModelsResponse>("/api/models/fetch", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  })
+  return apiRequest<FetchModelsResponse>(
+    "/api/models/fetch",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    },
+    "text-detail",
+  )
 }
 
 // --- Model Catalog API ---
@@ -208,15 +220,20 @@ interface CatalogListResponse {
 }
 
 export async function getCatalogs(): Promise<CatalogListResponse> {
-  return request<CatalogListResponse>("/api/models/catalog")
+  return apiRequest<CatalogListResponse>(
+    "/api/models/catalog",
+    undefined,
+    "text-detail",
+  )
 }
 
 export async function deleteCatalog(id: string): Promise<void> {
-  await request<Record<string, never>>(
+  await apiRequest<Record<string, never>>(
     `/api/models/catalog/${encodeURIComponent(id)}`,
     {
       method: "DELETE",
     },
+    "text-detail",
   )
 }
 

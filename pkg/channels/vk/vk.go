@@ -133,12 +133,7 @@ func (c *VKChannel) handleMessage(msg object.MessagesMessage) {
 	userID := strconv.Itoa(fromID)
 
 	platformID := userID
-	sender := bus.SenderInfo{
-		Platform:    "vk",
-		PlatformID:  platformID,
-		CanonicalID: identity.BuildCanonicalID("vk", platformID),
-		DisplayName: c.getUserName(fromID),
-	}
+	sender := identity.NewSenderInfo("vk", platformID, "", c.getUserName(fromID))
 
 	if !c.IsAllowedSender(sender) {
 		logger.DebugCF("vk", "Message from unauthorized user", map[string]any{

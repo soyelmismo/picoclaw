@@ -232,11 +232,7 @@ func (c *WhatsAppChannel) handleIncomingMessage(msg map[string]any) {
 		"preview": utils.Truncate(content, 50),
 	})
 
-	sender := bus.SenderInfo{
-		Platform:    "whatsapp",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("whatsapp", senderID),
-	}
+	sender := identity.NewSenderInfo("whatsapp", senderID, "", "")
 	if display, ok := metadata["user_name"]; ok {
 		sender.DisplayName = display
 	}

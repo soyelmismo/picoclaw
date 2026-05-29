@@ -1,16 +1,11 @@
 import { useTranslation } from "react-i18next"
 
 import type { ChannelConfig } from "@/api/channels"
-import {
-  type ArrayFieldFlusher,
-  ChannelArrayListField,
-} from "@/components/channels/channel-array-list-field"
-import {
-  asStringArray,
-  parseAllowFromInput,
-} from "@/components/channels/channel-array-utils"
+import { type ArrayFieldFlusher } from "@/components/channels/channel-array-list-field"
+import { AllowFromField } from "@/components/channels/allow-from-field"
 import { getSecretInputPlaceholder } from "@/components/channels/channel-config-fields"
 import { Field, KeyInput } from "@/components/shared-form"
+import { asString } from "@/lib/type-coerce"
 import { Card, CardContent } from "@/components/ui/card"
 
 interface SlackFormProps {
@@ -23,10 +18,6 @@ interface SlackFormProps {
     flusher: ArrayFieldFlusher | null,
   ) => void
   arrayFieldResetVersion?: number
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : ""
 }
 
 export function SlackForm({
@@ -81,14 +72,9 @@ export function SlackForm({
 
       <Card className="shadow-sm">
         <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
-          <ChannelArrayListField
-            label={t("channels.field.allowFrom")}
-            hint={t("channels.form.desc.allowFrom")}
-            value={asStringArray(config.allow_from)}
+          <AllowFromField
+            value={config.allow_from}
             onChange={(value) => onChange("allow_from", value)}
-            placeholder={t("channels.field.allowFromPlaceholder")}
-            parser={parseAllowFromInput}
-            fieldPath="allow_from"
             registerFlusher={registerArrayFieldFlusher}
             resetVersion={arrayFieldResetVersion}
           />

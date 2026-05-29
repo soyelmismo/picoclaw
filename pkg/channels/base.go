@@ -414,3 +414,21 @@ func BuildMediaScope(channel, chatID, messageID string) string {
 	}
 	return channel + ":" + chatID + ":" + id
 }
+
+// StoreInboundMedia registers a local file with the media store and returns
+// a media ref. If the store is unavailable or the store call fails, it falls
+// back to returning the raw localPath.
+func (c *BaseChannel) StoreInboundMedia(localPath, filename, contentType, source, scope string) string {
+	if store := c.GetMediaStore(); store != nil {
+		ref, err := store.Store(localPath, media.MediaMeta{
+			Filename:      filename,
+			ContentType:   contentType,
+			Source:        source,
+			CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
+		}, scope)
+		if err == nil {
+			return ref
+		}
+	}
+	return localPath
+}

@@ -9,6 +9,18 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
+// NewSenderInfo constructs a SenderInfo with a canonical ID derived from the
+// platform name and platform-specific ID. Username and DisplayName may be empty.
+func NewSenderInfo(platform, platformID, username, displayName string) bus.SenderInfo {
+	return bus.SenderInfo{
+		Platform:    platform,
+		PlatformID:  platformID,
+		CanonicalID: BuildCanonicalID(platform, platformID),
+		Username:    username,
+		DisplayName: displayName,
+	}
+}
+
 // BuildCanonicalID constructs a canonical "platform:id" identifier.
 // Both platform and platformID are lowercased and trimmed.
 func BuildCanonicalID(platform, platformID string) string {

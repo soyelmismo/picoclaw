@@ -30,7 +30,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -623,11 +622,7 @@ func (c *QQChannel) handleC2CMessage() event.C2CMessageEventHandler {
 			return nil
 		}
 
-		sender := bus.SenderInfo{
-			Platform:    "qq",
-			PlatformID:  data.Author.ID,
-			CanonicalID: identity.BuildCanonicalID("qq", data.Author.ID),
-		}
+		sender := identity.NewSenderInfo("qq", data.Author.ID, "", "")
 
 		if !c.IsAllowedSender(sender) {
 			return nil
@@ -692,11 +687,7 @@ func (c *QQChannel) handleGroupATMessage() event.GroupATMessageEventHandler {
 			return nil
 		}
 
-		sender := bus.SenderInfo{
-			Platform:    "qq",
-			PlatformID:  data.Author.ID,
-			CanonicalID: identity.BuildCanonicalID("qq", data.Author.ID),
-		}
+		sender := identity.NewSenderInfo("qq", data.Author.ID, "", "")
 
 		if !c.IsAllowedSender(sender) {
 			return nil
@@ -767,18 +758,7 @@ func (c *QQChannel) extractInboundAttachments(
 	notes := make([]string, 0, len(attachments))
 
 	storeMedia := func(localPath string, attachment *dto.MessageAttachment) string {
-		if store := c.GetMediaStore(); store != nil {
-			ref, err := store.Store(localPath, media.MediaMeta{
-				Filename:      qqAttachmentFilename(attachment),
-				ContentType:   attachment.ContentType,
-				Source:        "qq",
-				CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
-			}, scope)
-			if err == nil {
-				return ref
-			}
-		}
-		return localPath
+		return c.StoreInboundMedia(localPath, qqAttachmentFilename(attachment), attachment.ContentType, "qq", scope)
 	}
 
 	for _, attachment := range attachments {
@@ -866,29 +846,7 @@ func qqAttachmentKind(attachment *dto.MessageAttachment) string {
 	if attachment == nil {
 		return "file"
 	}
-
-	contentType := strings.ToLower(attachment.ContentType)
-	filename := strings.ToLower(attachment.FileName)
-
-	switch {
-	case strings.HasPrefix(contentType, "image/"):
-		return "image"
-	case strings.HasPrefix(contentType, "video/"):
-		return "video"
-	case strings.HasPrefix(contentType, "audio/"), contentType == "application/ogg", contentType == "application/x-ogg":
-		return "audio"
-	}
-
-	switch filepath.Ext(filename) {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg":
-		return "image"
-	case ".mp4", ".avi", ".mov", ".webm", ".mkv":
-		return "video"
-	case ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma", ".opus", ".silk":
-		return "audio"
-	default:
-		return "file"
-	}
+	return channels.ClassifyMediaType(attachment.FileName, attachment.ContentType)
 }
 
 func qqAttachmentNote(attachment *dto.MessageAttachment) string {

@@ -1,4 +1,4 @@
-import { launcherFetch } from "@/api/http"
+import { apiRequest } from "@/api/request"
 
 export interface SessionSummary {
   id: string
@@ -49,27 +49,25 @@ export async function getSessions(
     offset: offset.toString(),
     limit: limit.toString(),
   })
-
-  const res = await launcherFetch(`/api/sessions?${params.toString()}`)
-  if (!res.ok) {
-    throw new Error(`Failed to fetch sessions: ${res.status}`)
-  }
-  return res.json()
+  return apiRequest<SessionSummary[]>(
+    `/api/sessions?${params.toString()}`,
+    undefined,
+    "simple",
+  )
 }
 
 export async function getSessionHistory(id: string): Promise<SessionDetail> {
-  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(id)}`)
-  if (!res.ok) {
-    throw new Error(`Failed to fetch session ${id}: ${res.status}`)
-  }
-  return res.json()
+  return apiRequest<SessionDetail>(
+    `/api/sessions/${encodeURIComponent(id)}`,
+    undefined,
+    "simple",
+  )
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  })
-  if (!res.ok) {
-    throw new Error(`Failed to delete session ${id}: ${res.status}`)
-  }
+  await apiRequest<Record<string, never>>(
+    `/api/sessions/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+    "simple",
+  )
 }

@@ -46,13 +46,6 @@ const (
 
 var matrixMentionHrefRegexp = regexp.MustCompile(`(?i)<a[^>]+href=["']([^"']+)["']`)
 
-func outboundMessageIsToolFeedback(msg bus.OutboundMessage) bool {
-	if len(msg.Context.Raw) == 0 {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), "tool_feedback")
-}
-
 type roomKindCacheEntry struct {
 	isGroup   bool
 	expiresAt time.Time
@@ -181,6 +174,7 @@ func (s *typingSession) stop() {
 // MatrixChannel implements the Channel interface for Matrix.
 type MatrixChannel struct {
 	*channels.BaseChannel
+	channels.ToolFeedbackMixin
 	bc *config.Channel
 
 	client *mautrix.Client
@@ -199,7 +193,6 @@ type MatrixChannel struct {
 
 	cryptoHelper *cryptohelper.CryptoHelper
 	cryptoDbPath string
-	progress     *channels.ToolFeedbackAnimator
 }
 
 func NewMatrixChannel(
@@ -257,7 +250,7 @@ func NewMatrixChannel(
 		typingMu:          sync.Mutex{},
 		cryptoDbPath:      cryptoDatabasePath,
 	}
-	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.Init(ch.EditMessage, ch.DeleteMessage)
 	return ch, nil
 }
 
@@ -307,8 +300,8 @@ func (c *MatrixChannel) Stop(ctx context.Context) error {
 		c.cancel()
 	}
 	c.stopTypingSessions(ctx)
-	if c.progress != nil {
-		c.progress.StopAll()
+	if c.Progress != nil {
+		c.Progress.StopAll()
 	}
 
 	// Close crypto helper if initialized
@@ -411,16 +404,16 @@ func (c *MatrixChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		return nil, nil
 	}
 
-	isToolFeedback := outboundMessageIsToolFeedback(msg)
+	isToolFeedback := channels.IsToolFeedbackMessage(msg)
 	if isToolFeedback {
-		if msgID, handled, err := c.progress.Update(ctx, msg.ChatID, content); handled {
+		if msgID, handled, err := c.Progress.Update(ctx, msg.ChatID, content); handled {
 			if err != nil {
 				return nil, err
 			}
 			return []string{msgID}, nil
 		}
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(msg.ChatID)
 	if !isToolFeedback {
 		if msgIDs, handled := c.FinalizeToolFeedbackMessage(ctx, msg); handled {
 			return msgIDs, nil
@@ -438,7 +431,7 @@ func (c *MatrixChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	if isToolFeedback {
 		c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
 	} else if hasTrackedMsg {
-		c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+		c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 	}
 	return []string{msgID}, nil
 }
@@ -457,7 +450,7 @@ func (c *MatrixChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	if !c.IsRunning() {
 		return nil, channels.ErrNotRunning
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(msg.ChatID)
 
 	sendCtx := ctx
 	if sendCtx == nil {
@@ -570,7 +563,7 @@ func (c *MatrixChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	}
 
 	if hasTrackedMsg {
-		c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
+		c.DismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 	}
 
 	return eventIDs, nil
@@ -671,74 +664,6 @@ func (c *MatrixChannel) DeleteMessage(ctx context.Context, chatID string, messag
 	return err
 }
 
-func (c *MatrixChannel) currentToolFeedbackMessage(chatID string) (string, bool) {
-	if c.progress == nil {
-		return "", false
-	}
-	return c.progress.Current(chatID)
-}
-
-func (c *MatrixChannel) takeToolFeedbackMessage(chatID string) (string, string, bool) {
-	if c.progress == nil {
-		return "", "", false
-	}
-	return c.progress.Take(chatID)
-}
-
-func (c *MatrixChannel) RecordToolFeedbackMessage(chatID, messageID, content string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Record(chatID, messageID, content)
-}
-
-func (c *MatrixChannel) ClearToolFeedbackMessage(chatID string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Clear(chatID)
-}
-
-func (c *MatrixChannel) DismissToolFeedbackMessage(ctx context.Context, chatID string) {
-	msgID, ok := c.currentToolFeedbackMessage(chatID)
-	if !ok {
-		return
-	}
-	c.dismissTrackedToolFeedbackMessage(ctx, chatID, msgID)
-}
-
-func (c *MatrixChannel) dismissTrackedToolFeedbackMessage(ctx context.Context, chatID, messageID string) {
-	if strings.TrimSpace(chatID) == "" || strings.TrimSpace(messageID) == "" {
-		return
-	}
-	c.ClearToolFeedbackMessage(chatID)
-	_ = c.DeleteMessage(ctx, chatID, messageID)
-}
-
-func (c *MatrixChannel) finalizeTrackedToolFeedbackMessage(
-	ctx context.Context,
-	chatID string,
-	content string,
-	editFn func(context.Context, string, string, string) error,
-) ([]string, bool) {
-	msgID, baseContent, ok := c.takeToolFeedbackMessage(chatID)
-	if !ok || editFn == nil {
-		return nil, false
-	}
-	if err := editFn(ctx, chatID, msgID, content); err != nil {
-		c.RecordToolFeedbackMessage(chatID, msgID, baseContent)
-		return nil, false
-	}
-	return []string{msgID}, true
-}
-
-func (c *MatrixChannel) FinalizeToolFeedbackMessage(ctx context.Context, msg bus.OutboundMessage) ([]string, bool) {
-	if outboundMessageIsToolFeedback(msg) {
-		return nil, false
-	}
-	return c.finalizeTrackedToolFeedbackMessage(ctx, msg.ChatID, msg.Content, c.EditMessage)
-}
-
 func (c *MatrixChannel) handleMemberEvent(ctx context.Context, evt *event.Event) {
 	if !c.config.JoinOnInvite {
 		return
@@ -824,13 +749,7 @@ func (c *MatrixChannel) handleMessageEvent(ctx context.Context, evt *event.Event
 	}
 
 	senderID := evt.Sender.String()
-	sender := bus.SenderInfo{
-		Platform:    "matrix",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("matrix", senderID),
-		Username:    senderID,
-		DisplayName: senderID,
-	}
+	sender := identity.NewSenderInfo("matrix", senderID, senderID, senderID)
 
 	if !c.IsAllowedSender(sender) {
 		logger.DebugCF("matrix", "Message rejected by allowlist", map[string]any{
@@ -1109,22 +1028,12 @@ func matrixOutboundMsgType(partType, filename, contentType string) event.Message
 		return event.MsgFile
 	}
 
-	ct := strings.ToLower(strings.TrimSpace(contentType))
-	switch {
-	case strings.HasPrefix(ct, "image/"):
+	switch channels.ClassifyMediaType(filename, contentType) {
+	case "image":
 		return event.MsgImage
-	case strings.HasPrefix(ct, "audio/"), ct == "application/ogg", ct == "application/x-ogg":
+	case "audio":
 		return event.MsgAudio
-	case strings.HasPrefix(ct, "video/"):
-		return event.MsgVideo
-	}
-
-	switch strings.ToLower(strings.TrimSpace(filepath.Ext(filename))) {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg":
-		return event.MsgImage
-	case ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma", ".opus":
-		return event.MsgAudio
-	case ".mp4", ".avi", ".mov", ".webm", ".mkv":
+	case "video":
 		return event.MsgVideo
 	default:
 		return event.MsgFile

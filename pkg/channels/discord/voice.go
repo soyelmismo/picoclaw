@@ -270,11 +270,7 @@ func (c *DiscordChannel) receiveVoice(vc *discordgo.VoiceConnection, guildID str
 				continue
 			}
 
-			sender := bus.SenderInfo{
-				Platform:    "discord",
-				PlatformID:  userID,
-				CanonicalID: identity.BuildCanonicalID("discord", userID),
-			}
+			sender := identity.NewSenderInfo("discord", userID, "", "")
 			if !c.IsAllowedSender(sender) {
 				logger.DebugCF("discord", "Voice packet rejected by allowlist", map[string]any{
 					"user_id": userID,

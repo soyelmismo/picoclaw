@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { asString } from "@/lib/type-coerce"
 import { useTranslation } from "react-i18next"
 
 interface MqttFormProps {
@@ -17,10 +18,6 @@ interface MqttFormProps {
   onChange: (key: string, value: unknown) => void
   configuredSecrets: string[]
   fieldErrors?: Record<string, string>
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : ""
 }
 
 function asNumber(value: unknown): string {

@@ -58,13 +58,7 @@ func (c *IRCChannel) onPrivmsg(conn *ircevent.Connection, e ircmsg.Message) {
 		chatID = target
 	}
 
-	sender := bus.SenderInfo{
-		Platform:    "irc",
-		PlatformID:  nick,
-		CanonicalID: identity.BuildCanonicalID("irc", nick),
-		Username:    nick,
-		DisplayName: nick,
-	}
+	sender := identity.NewSenderInfo("irc", nick, nick, nick)
 
 	if !c.IsAllowedSender(sender) {
 		return

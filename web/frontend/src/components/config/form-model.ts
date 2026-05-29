@@ -167,20 +167,7 @@ export const EMPTY_LAUNCHER_FORM: LauncherForm = {
   dashboardPasswordConfirm: "",
 }
 
-function asRecord(value: unknown): JsonRecord {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as JsonRecord
-  }
-  return {}
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : ""
-}
-
-function asBool(value: unknown): boolean {
-  return value === true
-}
+import { asBool, asRecord, asString } from "@/lib/type-coerce"
 
 function asOptionalBool(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null

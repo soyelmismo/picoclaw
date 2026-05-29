@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -23,7 +22,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -39,6 +37,7 @@ var (
 
 type DiscordChannel struct {
 	*channels.BaseChannel
+	channels.ToolFeedbackMixin
 	bc         *config.Channel
 	session    *discordgo.Session
 	config     *config.DiscordSettings
@@ -46,7 +45,6 @@ type DiscordChannel struct {
 	cancel     context.CancelFunc
 	typingMu   sync.Mutex
 	typingStop map[string]chan struct{} // chatID → stop signal
-	progress   *channels.ToolFeedbackAnimator
 	botUserID  string // stored for mention checking
 	bus        *bus.MessageBus
 	tts        tts.TTSProvider
@@ -100,7 +98,7 @@ func NewDiscordChannel(
 	}
 	ch.playTTSFn = ch.playTTS
 	ch.ttsVoiceFn = ch.voiceConnectionForTTS
-	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
+	ch.Init(ch.EditMessage, ch.DeleteMessage)
 	return ch, nil
 }
 
@@ -150,8 +148,8 @@ func (c *DiscordChannel) Stop(ctx context.Context) error {
 	if c.cancel != nil {
 		c.cancel()
 	}
-	if c.progress != nil {
-		c.progress.StopAll()
+	if c.Progress != nil {
+		c.Progress.StopAll()
 	}
 
 	if err := c.session.Close(); err != nil {
@@ -175,16 +173,16 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]s
 		return nil, nil
 	}
 
-	isToolFeedback := outboundMessageIsToolFeedback(msg)
+	isToolFeedback := channels.IsToolFeedbackMessage(msg)
 	if isToolFeedback {
-		if msgID, handled, err := c.progress.Update(ctx, channelID, msg.Content); handled {
+		if msgID, handled, err := c.Progress.Update(ctx, channelID, msg.Content); handled {
 			if err != nil {
 				return nil, err
 			}
 			return []string{msgID}, nil
 		}
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(channelID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(channelID)
 	c.maybeStartTTS(channelID, msg.Content, isToolFeedback)
 	if !isToolFeedback {
 		if msgIDs, handled := c.FinalizeToolFeedbackMessage(ctx, msg); handled {
@@ -203,7 +201,7 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]s
 	if isToolFeedback {
 		c.RecordToolFeedbackMessage(channelID, msgID, msg.Content)
 	} else if hasTrackedMsg {
-		c.dismissTrackedToolFeedbackMessage(ctx, channelID, trackedMsgID)
+		c.DismissTrackedToolFeedbackMessage(ctx, channelID, trackedMsgID)
 	}
 	return []string{msgID}, nil
 }
@@ -267,7 +265,7 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 	if channelID == "" {
 		return nil, fmt.Errorf("channel ID is empty")
 	}
-	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(channelID)
+	trackedMsgID, hasTrackedMsg := c.CurrentToolFeedbackMessage(channelID)
 
 	store := c.GetMediaStore()
 	if store == nil {
@@ -350,7 +348,7 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 			return nil, fmt.Errorf("discord send media: %w", channels.ErrTemporary)
 		}
 		if hasTrackedMsg {
-			c.dismissTrackedToolFeedbackMessage(ctx, channelID, trackedMsgID)
+			c.DismissTrackedToolFeedbackMessage(ctx, channelID, trackedMsgID)
 		}
 		return []string{r.id}, nil
 	case <-sendCtx.Done():
@@ -391,81 +389,6 @@ func (c *DiscordChannel) SendPlaceholder(ctx context.Context, chatID string) (st
 	}
 
 	return msg.ID, nil
-}
-
-func outboundMessageIsToolFeedback(msg bus.OutboundMessage) bool {
-	if len(msg.Context.Raw) == 0 {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), "tool_feedback")
-}
-
-func (c *DiscordChannel) currentToolFeedbackMessage(chatID string) (string, bool) {
-	if c.progress == nil {
-		return "", false
-	}
-	return c.progress.Current(chatID)
-}
-
-func (c *DiscordChannel) takeToolFeedbackMessage(chatID string) (string, string, bool) {
-	if c.progress == nil {
-		return "", "", false
-	}
-	return c.progress.Take(chatID)
-}
-
-func (c *DiscordChannel) RecordToolFeedbackMessage(chatID, messageID, content string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Record(chatID, messageID, content)
-}
-
-func (c *DiscordChannel) ClearToolFeedbackMessage(chatID string) {
-	if c.progress == nil {
-		return
-	}
-	c.progress.Clear(chatID)
-}
-
-func (c *DiscordChannel) DismissToolFeedbackMessage(ctx context.Context, chatID string) {
-	msgID, ok := c.currentToolFeedbackMessage(chatID)
-	if !ok {
-		return
-	}
-	c.dismissTrackedToolFeedbackMessage(ctx, chatID, msgID)
-}
-
-func (c *DiscordChannel) dismissTrackedToolFeedbackMessage(ctx context.Context, chatID, messageID string) {
-	if strings.TrimSpace(chatID) == "" || strings.TrimSpace(messageID) == "" {
-		return
-	}
-	c.ClearToolFeedbackMessage(chatID)
-	_ = c.DeleteMessage(ctx, chatID, messageID)
-}
-
-func (c *DiscordChannel) finalizeTrackedToolFeedbackMessage(
-	ctx context.Context,
-	chatID string,
-	content string,
-	editFn func(context.Context, string, string, string) error,
-) ([]string, bool) {
-	msgID, baseContent, ok := c.takeToolFeedbackMessage(chatID)
-	if !ok || editFn == nil {
-		return nil, false
-	}
-	if err := editFn(ctx, chatID, msgID, content); err != nil {
-		c.RecordToolFeedbackMessage(chatID, msgID, baseContent)
-		return nil, false
-	}
-	return []string{msgID}, true
-}
-
-func (c *DiscordChannel) FinalizeToolFeedbackMessage(ctx context.Context, msg bus.OutboundMessage) ([]string, bool) {
-	if outboundMessageIsToolFeedback(msg) {
-		return nil, false
-	}
-	return c.finalizeTrackedToolFeedbackMessage(ctx, msg.ChatID, msg.Content, c.EditMessage)
 }
 
 func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content, replyToID string) (string, error) {
@@ -531,18 +454,12 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	// Check allowlist first to avoid downloading attachments for rejected users
-	sender := bus.SenderInfo{
-		Platform:    "discord",
-		PlatformID:  m.Author.ID,
-		CanonicalID: identity.BuildCanonicalID("discord", m.Author.ID),
-		Username:    m.Author.Username,
-	}
 	// Build display name
 	displayName := m.Author.Username
 	if m.Author.Discriminator != "" && m.Author.Discriminator != "0" {
 		displayName += "#" + m.Author.Discriminator
 	}
-	sender.DisplayName = displayName
+	sender := identity.NewSenderInfo("discord", m.Author.ID, m.Author.Username, displayName)
 
 	if !c.IsAllowedSender(sender) {
 		logger.DebugCF("discord", "Message rejected by allowlist", map[string]any{
@@ -607,25 +524,14 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 
 	// Helper to register a local file with the media store
 	storeMedia := func(localPath string, attachment *discordgo.MessageAttachment) string {
-		if store := c.GetMediaStore(); store != nil {
-			ref, err := store.Store(localPath, media.MediaMeta{
-				Filename:      attachment.Filename,
-				ContentType:   attachment.ContentType,
-				Source:        "discord",
-				CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
-			}, scope)
-			if err == nil {
-				return ref
-			}
-		}
-		return localPath // fallback
+		return c.StoreInboundMedia(localPath, attachment.Filename, attachment.ContentType, "discord", scope)
 	}
 
 	for _, attachment := range m.Attachments {
 		localPath := c.downloadAttachment(attachment.URL, attachment.Filename)
 		if localPath != "" {
 			mediaPaths = append(mediaPaths, storeMedia(localPath, attachment))
-			tag := attachmentMediaTag(attachment.Filename, attachment.ContentType)
+			tag := channels.ClassifyMediaType(attachment.Filename, attachment.ContentType)
 			content = appendContent(content, fmt.Sprintf("[%s: %s]", tag, attachment.Filename))
 		} else {
 			logger.WarnCF("discord", "Failed to download attachment", map[string]any{
@@ -744,29 +650,7 @@ func (c *DiscordChannel) downloadAttachment(url, filename string) string {
 	})
 }
 
-func attachmentMediaTag(filename, contentType string) string {
-	ct := strings.ToLower(contentType)
-	switch {
-	case strings.HasPrefix(ct, "image/"):
-		return "image"
-	case strings.HasPrefix(ct, "audio/"), ct == "application/ogg", ct == "application/x-ogg":
-		return "audio"
-	case strings.HasPrefix(ct, "video/"):
-		return "video"
-	}
 
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
-		return "image"
-	case ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma":
-		return "audio"
-	case ".mp4", ".avi", ".mov", ".webm", ".mkv":
-		return "video"
-	}
-
-	return "file"
-}
 
 func applyDiscordProxy(session *discordgo.Session, proxyAddr string) error {
 	var proxyFunc func(*http.Request) (*url.URL, error)

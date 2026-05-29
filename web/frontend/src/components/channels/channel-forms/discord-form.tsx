@@ -1,16 +1,11 @@
 import { useTranslation } from "react-i18next"
 
 import type { ChannelConfig } from "@/api/channels"
-import {
-  type ArrayFieldFlusher,
-  ChannelArrayListField,
-} from "@/components/channels/channel-array-list-field"
-import {
-  asStringArray,
-  parseAllowFromInput,
-} from "@/components/channels/channel-array-utils"
+import { type ArrayFieldFlusher } from "@/components/channels/channel-array-list-field"
 import { getSecretInputPlaceholder } from "@/components/channels/channel-config-fields"
+import { AllowFromField } from "@/components/channels/allow-from-field"
 import { Field, KeyInput, SwitchCardField } from "@/components/shared-form"
+import { asBool, asRecord, asString } from "@/lib/type-coerce"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
@@ -24,21 +19,6 @@ interface DiscordFormProps {
     flusher: ArrayFieldFlusher | null,
   ) => void
   arrayFieldResetVersion?: number
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : ""
-}
-
-function asBool(value: unknown): boolean {
-  return value === true
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 export function DiscordForm({
@@ -88,14 +68,9 @@ export function DiscordForm({
               placeholder="http://127.0.0.1:7890"
             />
           </Field>
-          <ChannelArrayListField
-            label={t("channels.field.allowFrom")}
-            hint={t("channels.form.desc.allowFrom")}
-            value={asStringArray(config.allow_from)}
+          <AllowFromField
+            value={config.allow_from}
             onChange={(value) => onChange("allow_from", value)}
-            placeholder={t("channels.field.allowFromPlaceholder")}
-            parser={parseAllowFromInput}
-            fieldPath="allow_from"
             registerFlusher={registerArrayFieldFlusher}
             resetVersion={arrayFieldResetVersion}
           />

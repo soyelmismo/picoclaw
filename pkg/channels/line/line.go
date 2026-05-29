@@ -17,7 +17,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -203,16 +202,7 @@ func (c *LINEChannel) processEvent(event webhook.EventInterface) {
 
 	// Helper to register a local file with the media store
 	storeMedia := func(localPath, filename, scope string) string {
-		if store := c.GetMediaStore(); store != nil {
-			ref, err := store.Store(localPath, media.MediaMeta{
-				Filename: filename,
-				Source:   "line",
-			}, scope)
-			if err == nil {
-				return ref
-			}
-		}
-		return localPath // fallback
+		return c.StoreInboundMedia(localPath, filename, "", "line", scope)
 	}
 
 	switch msg := msgEvent.Message.(type) {
@@ -310,11 +300,7 @@ func (c *LINEChannel) processEvent(event webhook.EventInterface) {
 		"preview":      utils.Truncate(content, 50),
 	})
 
-	sender := bus.SenderInfo{
-		Platform:    "line",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("line", senderID),
-	}
+	sender := identity.NewSenderInfo("line", senderID, "", "")
 
 	if !c.IsAllowedSender(sender) {
 		return

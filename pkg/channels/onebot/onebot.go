@@ -852,11 +852,7 @@ func (c *OneBotChannel) handleRawEvent(raw *oneBotRawEvent) {
 	case "message":
 		if userID, err := parseJSONInt64(raw.UserID); err == nil && userID > 0 {
 			// Build minimal sender for allowlist check
-			sender := bus.SenderInfo{
-				Platform:    "onebot",
-				PlatformID:  strconv.FormatInt(userID, 10),
-				CanonicalID: identity.BuildCanonicalID("onebot", strconv.FormatInt(userID, 10)),
-			}
+			sender := identity.NewSenderInfo("onebot", strconv.FormatInt(userID, 10), "", "")
 			if !c.IsAllowedSender(sender) {
 				logger.DebugCF("onebot", "Message rejected by allowlist", map[string]any{
 					"user_id": userID,
@@ -1064,12 +1060,7 @@ func (c *OneBotChannel) handleMessage(raw *oneBotRawEvent) {
 
 	c.lastMessageID.Store(chatID, messageID)
 
-	senderInfo := bus.SenderInfo{
-		Platform:    "onebot",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("onebot", senderID),
-		DisplayName: sender.Nickname,
-	}
+	senderInfo := identity.NewSenderInfo("onebot", senderID, "", sender.Nickname)
 
 	if !c.IsAllowedSender(senderInfo) {
 		logger.DebugCF("onebot", "Message rejected by allowlist (senderInfo)", map[string]any{

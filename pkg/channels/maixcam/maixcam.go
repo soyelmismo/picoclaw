@@ -190,11 +190,7 @@ func (c *MaixCamChannel) handlePersonDetection(msg MaixCamMessage) {
 		"h":         fmt.Sprintf("%.0f", h),
 	}
 
-	sender := bus.SenderInfo{
-		Platform:    "maixcam",
-		PlatformID:  "maixcam",
-		CanonicalID: identity.BuildCanonicalID("maixcam", "maixcam"),
-	}
+	sender := identity.NewSenderInfo("maixcam", "maixcam", "", "")
 
 	if !c.IsAllowedSender(sender) {
 		return

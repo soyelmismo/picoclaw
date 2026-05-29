@@ -7,6 +7,7 @@ import {
 import { useTranslation } from "react-i18next"
 
 import type { OAuthProviderStatus } from "@/api/oauth"
+import { CredentialCardLogoutFooter } from "@/components/credentials/credential-card-logout-footer"
 import { Button } from "@/components/ui/button"
 
 import { CredentialCard } from "./credential-card"
@@ -87,18 +88,12 @@ export function AntigravityCredentialCard({
       }
       footer={
         status?.logged_in ? (
-          <Button
-            variant="ghost"
-            size="sm"
+          <CredentialCardLogoutFooter
+            activeAction={activeAction}
+            actionKey="google-antigravity:logout"
             disabled={actionBusy}
-            onClick={onAskLogout}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            {activeAction === "google-antigravity:logout" && (
-              <IconLoader2 className="size-4 animate-spin" />
-            )}
-            {t("credentials.actions.logout")}
-          </Button>
+            onAskLogout={onAskLogout}
+          />
         ) : null
       }
     />

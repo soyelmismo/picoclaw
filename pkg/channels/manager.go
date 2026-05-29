@@ -162,13 +162,6 @@ func outboundMessageChatID(msg bus.OutboundMessage) string {
 	return msg.ChatID
 }
 
-func outboundMessageIsToolFeedback(msg bus.OutboundMessage) bool {
-	if len(msg.Context.Raw) == 0 {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["message_kind"]), "tool_feedback")
-}
-
 func outboundMessageHasAuxiliaryKind(msg bus.OutboundMessage) bool {
 	if len(msg.Context.Raw) == 0 {
 		return false
@@ -378,7 +371,7 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 		}
 	}
 
-	isToolFeedback := outboundMessageIsToolFeedback(msg)
+	isToolFeedback := IsToolFeedbackMessage(msg)
 	isAuxiliaryMessage := outboundMessageHasAuxiliaryKind(msg)
 	isFinalMessage := outboundMessageIsFinal(msg)
 	separateToolFeedbackMessages := m.toolFeedbackSeparateMessagesEnabled()
@@ -1423,7 +1416,7 @@ func (m *Manager) runWorker(ctx context.Context, name string, w *channelWorker) 
 			// consume the whole final message before any marker chunk leaks.
 			if m.finalizedStreamActiveForMessage(name, msg) {
 				chunks = []string{msg.Content}
-			} else if m.config != nil && m.config.Agents.Defaults.SplitOnMarker && !outboundMessageIsToolFeedback(msg) {
+			} else if m.config != nil && m.config.Agents.Defaults.SplitOnMarker && !IsToolFeedbackMessage(msg) {
 				if markerChunks := SplitByMarker(msg.Content); len(markerChunks) > 1 {
 					for _, chunk := range markerChunks {
 						chunkMsg := msg
@@ -1472,7 +1465,7 @@ func (m *Manager) finalizedStreamActiveForMessage(channelName string, msg bus.Ou
 // keeps tool feedback in a single message by truncating the explanation body.
 func splitOutboundMessageContent(msg bus.OutboundMessage, maxLen int) []string {
 	if maxLen > 0 {
-		if outboundMessageIsToolFeedback(msg) {
+		if IsToolFeedbackMessage(msg) {
 			animationSafeLen := maxLen - MaxToolFeedbackAnimationFrameLength()
 			if animationSafeLen <= 0 {
 				animationSafeLen = maxLen

@@ -490,12 +490,7 @@ func (c *WeComChannel) dispatchIncoming(reqID string, msg wecomIncomingMessage) 
 		peerKind = "group"
 	}
 
-	sender := bus.SenderInfo{
-		Platform:    "wecom",
-		PlatformID:  senderID,
-		CanonicalID: identity.BuildCanonicalID("wecom", senderID),
-		DisplayName: senderID,
-	}
+	sender := identity.NewSenderInfo("wecom", senderID, "", senderID)
 
 	var (
 		content   string

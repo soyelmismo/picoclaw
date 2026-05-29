@@ -779,7 +779,7 @@ func TestBeginStream_UsesDefaultThrottleWhenOnlyEnabled(t *testing.T) {
 	require.Len(t, caller.calls, 1, "second small update should be throttled by defaults")
 }
 
-func TestBeginStream_UpdateReturnsErrorWhenDraftFails(t *testing.T) {
+func TestBeginStream_UpdateDegradesGracefullyWhenDraftFails(t *testing.T) {
 	callCount := 0
 	caller := &stubCaller{
 		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
@@ -796,9 +796,14 @@ func TestBeginStream_UpdateReturnsErrorWhenDraftFails(t *testing.T) {
 	streamer, err := ch.BeginStream(context.Background(), "12345")
 	require.NoError(t, err)
 
+	// Update returns nil on draft failure (streaming degrades gracefully;
+	// Finalize will send the full response via SendMessage instead).
 	err = streamer.Update(context.Background(), "partial")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "draft unsupported")
+	require.NoError(t, err)
+
+	// Subsequent updates are silently skipped while in failed state.
+	err = streamer.Update(context.Background(), "partial updated")
+	require.NoError(t, err)
 
 	streamer.Cancel(context.Background())
 	require.Len(t, caller.calls, 2)
