@@ -580,10 +580,8 @@ func (hm *HookManager) rebuildOrdered() {
 func (hm *HookManager) snapshotHooks() []HookRegistration {
 	hm.mu.RLock()
 	defer hm.mu.RUnlock()
-
-	snapshot := make([]HookRegistration, len(hm.ordered))
-	copy(snapshot, hm.ordered)
-	return snapshot
+	// Safe to share the underlying array: ordered is append-only, never mutated in place.
+	return hm.ordered[:]
 }
 
 func (hm *HookManager) closeAllHooks() {

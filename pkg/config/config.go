@@ -63,6 +63,11 @@ type EvolutionConfig struct {
 	ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 	ColdPathTimes   []string `json:"cold_path_times,omitempty"`
 	JudgeModel      string   `json:"judge_model,omitempty"`
+	// BackgroundModel overrides the model used for background evolution tasks
+	// (pattern clustering, draft generation). When empty, the main agent model
+	// is used. This lets operators point expensive background work at a cheaper
+	// or faster model without affecting the judge or main conversation.
+	BackgroundModel string `json:"background_model,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -79,6 +84,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
 		JudgeModel      string   `json:"judge_model,omitempty"`
+		BackgroundModel string   `json:"background_model,omitempty"`
 	}{
 		Enabled:         c.Enabled,
 		Mode:            c.Mode,
@@ -88,6 +94,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		ColdPathTrigger: strings.TrimSpace(c.ColdPathTrigger),
 		ColdPathTimes:   c.EffectiveColdPathTimes(),
 		JudgeModel:      c.JudgeModel,
+		BackgroundModel: c.BackgroundModel,
 	}
 	if !out.Enabled {
 		out.Mode = ""

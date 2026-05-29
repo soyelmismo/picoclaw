@@ -511,6 +511,72 @@ func TestEvolutionConfig_MarshalUsesNewThresholdNames(t *testing.T) {
 	}
 }
 
+func TestEvolutionConfig_BackgroundModelMarshalRoundTrip(t *testing.T) {
+	data, err := json.Marshal(EvolutionConfig{
+		Enabled:         true,
+		Mode:            "draft",
+		BackgroundModel: "cheap-model",
+		JudgeModel:      "judge-model",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if raw["background_model"] != "cheap-model" {
+		t.Fatalf("background_model = %#v, want cheap-model", raw["background_model"])
+	}
+	if raw["judge_model"] != "judge-model" {
+		t.Fatalf("judge_model = %#v, want judge-model", raw["judge_model"])
+	}
+}
+
+func TestEvolutionConfig_BackgroundModelOmittedWhenEmpty(t *testing.T) {
+	data, err := json.Marshal(EvolutionConfig{
+		Enabled:         true,
+		Mode:            "draft",
+		BackgroundModel: "",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if _, ok := raw["background_model"]; ok {
+		t.Fatalf("background_model should be omitted when empty: %#v", raw)
+	}
+}
+
+func TestLoadConfig_EvolutionBackgroundModelFromJSON(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := `{
+		"version": 3,
+		"evolution": {
+			"enabled": true,
+			"mode": "draft",
+			"background_model": "my-cheap-bg-model",
+			"judge_model": "my-judge-model"
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	assert.Equal(t, "my-cheap-bg-model", cfg.Evolution.BackgroundModel)
+	assert.Equal(t, "my-judge-model", cfg.Evolution.JudgeModel)
+}
+
 func TestLoadConfig_EvolutionEnabledWithoutModeUsesObserveSemantics(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")

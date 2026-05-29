@@ -553,9 +553,6 @@ func handleConfigReload(
 
 	logger.Infof(" New model is '%s', recreating provider...", newModel)
 
-	logger.Info("  Stopping all services...")
-	stopAndCleanupServices(runningServices, serviceShutdownTimeout, true)
-
 	newProvider, newModelID, err := createStartupProvider(newCfg, allowEmptyStartup)
 	if err != nil {
 		logger.Errorf("  ⚠ Error creating new provider: %v", err)
@@ -612,6 +609,12 @@ func restartServices(
 	msgBus *bus.MessageBus,
 ) error {
 	cfg := al.GetConfig()
+
+	// Save old service references for transactional swap
+	oldMedia := runningServices.MediaStore
+	oldCron := runningServices.CronService
+	oldHeartbeat := runningServices.HeartbeatService
+	oldVoiceCancel := runningServices.VoiceAgentCancel
 
 	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
 	var err error
@@ -700,6 +703,22 @@ func restartServices(
 	logChannelVoiceCapabilities(runningServices.ChannelManager, transcriber != nil, ttsAvailable)
 	// NOTE: PID file is written once at startup and not updated on reload.
 	// Changing the gateway listen address requires a full restart.
+
+	// Stop old services after successful swap
+	if oldVoiceCancel != nil {
+		oldVoiceCancel()
+	}
+	if oldHeartbeat != nil {
+		oldHeartbeat.Stop()
+	}
+	if oldCron != nil {
+		oldCron.Stop()
+	}
+	if oldMedia != nil {
+		if fms, ok := oldMedia.(*media.FileMediaStore); ok {
+			fms.Stop()
+		}
+	}
 
 	return nil
 }

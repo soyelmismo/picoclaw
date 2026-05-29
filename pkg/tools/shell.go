@@ -132,7 +132,37 @@ var (
 		"/dev/stdout":  true,
 		"/dev/stderr":  true,
 	}
+
+	// pathTraversalRe matches path traversal sequences like ../ or ..\ in commands.
+	pathTraversalRe = regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`)
+
+	// psEnvRe matches PowerShell environment variable references ($env:VAR / ${env:VAR}).
+	psEnvRe = regexp.MustCompile(`\$\{?env:(\w+)\}?`)
+
+	// cmdEnvRe matches CMD-style environment variable references (%VAR%).
+	cmdEnvRe = regexp.MustCompile(`%([^%]+)%`)
 )
+
+// maxSyncOutputSize caps how much output synchronous commands buffer in memory.
+const maxSyncOutputSize = 1 << 20 // 1 MB
+
+// cappedWriter discards writes once the limit is reached, preventing unbounded
+// memory growth when a subprocess produces excessive output.
+type cappedWriter struct {
+	buf   *bytes.Buffer
+	limit int
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	if w.buf.Len() >= w.limit {
+		return len(p), nil // discard but report success to avoid killing the process
+	}
+	remaining := w.limit - w.buf.Len()
+	if len(p) > remaining {
+		p = p[:remaining]
+	}
+	return w.buf.Write(p)
+}
 
 func NewExecTool(workingDir string, restrict bool, allowPaths ...[]*regexp.Regexp) (*ExecTool, error) {
 	return NewExecToolWithConfig(workingDir, restrict, nil, allowPaths...)
@@ -402,8 +432,8 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 	prepareCommandForTermination(cmd)
 
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = &cappedWriter{buf: &stdout, limit: maxSyncOutputSize}
+	cmd.Stderr = &cappedWriter{buf: &stderr, limit: maxSyncOutputSize}
 
 	// Route shell execution through the shared isolation entry point so exec tool
 	// subprocesses receive the same isolation policy as other integrations.
@@ -432,9 +462,11 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 	}
 
 	output := stdout.String()
+	stdout.Reset()
 	if stderr.Len() > 0 {
 		output += "\nSTDERR:\n" + stderr.String()
 	}
+	stderr.Reset()
 
 	if err != nil {
 		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
@@ -1049,9 +1081,8 @@ func (t *ExecTool) executeSendKeys(args map[string]any) *ToolResult {
 // PowerShell ($env:VAR) and CMD (%VAR%) to their actual values.
 func expandPowerShellEnvVars(cmd string) string {
 	// Handle PowerShell style: $env:VAR and ${env:VAR}
-	rePs := regexp.MustCompile(`\$\{?env:(\w+)\}?`)
-	cmd = rePs.ReplaceAllStringFunc(cmd, func(match string) string {
-		varName := rePs.FindStringSubmatch(match)[1]
+	cmd = psEnvRe.ReplaceAllStringFunc(cmd, func(match string) string {
+		varName := psEnvRe.FindStringSubmatch(match)[1]
 		if val := os.Getenv(varName); val != "" {
 			return val
 		}
@@ -1059,9 +1090,8 @@ func expandPowerShellEnvVars(cmd string) string {
 	})
 
 	// Handle CMD style: %VAR%
-	reCmd := regexp.MustCompile(`%([^%]+)%`)
-	return reCmd.ReplaceAllStringFunc(cmd, func(match string) string {
-		varName := reCmd.FindStringSubmatch(match)[1]
+	return cmdEnvRe.ReplaceAllStringFunc(cmd, func(match string) string {
+		varName := cmdEnvRe.FindStringSubmatch(match)[1]
 		if val := os.Getenv(varName); val != "" {
 			return val
 		}
@@ -1105,7 +1135,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 	if t.restrictToWorkspace {
 		// Block path traversal patterns including .../.../ variants
-		if regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`).MatchString(cmd) {
+		if pathTraversalRe.MatchString(cmd) {
 			return "Command blocked by safety guard (path traversal detected)"
 		}
 

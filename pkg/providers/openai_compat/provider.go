@@ -781,18 +781,49 @@ func parseStreamResponse(
 	}, nil
 }
 
+// knownModelPrefixes is a set of provider prefixes that appear in model names
+// from proxy/routing services (e.g. litellm, groq, siliconflow). These are
+// always stripped because they only indicate the routing layer, not the actual
+// model identifier. OpenRouter is intentionally excluded — it uses
+// "openrouter/<model>" as the real model name.
+var knownModelPrefixes = map[string]struct{}{
+	"deepseek":    {},
+	"groq":        {},
+	"litellm":     {},
+	"lmstudio":    {},
+	"moonshot":    {},
+	"novita":      {},
+	"ollama":      {},
+	"siliconflow": {},
+	"venice":      {},
+	"vivgrid":     {},
+}
+
 func (p *Provider) normalizeModel(model string) string {
 	before, after, ok := strings.Cut(model, "/")
 	if !ok {
 		return model
 	}
 
-	// Only strip prefix if it matches this provider's name.
+	prefix := strings.ToLower(before)
+
+	// Strip prefix if it matches this provider's name.
 	// e.g. "openai/gpt-4o" with provider openai -> "gpt-4o"
 	// but "nvidia/openai/gpt-oss-120b" with provider openrouter stays intact
-	prefix := strings.ToLower(before)
 	if prefix == p.providerName {
 		return after
+	}
+
+	// Strip well-known proxy/routing prefixes when the provider name is not
+	// explicitly configured. These prefixes are added by services like litellm,
+	// groq, siliconflow etc. and are not part of the actual model identifier.
+	// When p.providerName IS set, only exact-match stripping applies (above),
+	// because the prefix may be part of the real model name (e.g.
+	// "deepseek/deepseek-v3.2" on OpenRouter).
+	if p.providerName == "" {
+		if _, ok := knownModelPrefixes[prefix]; ok {
+			return after
+		}
 	}
 
 	return model

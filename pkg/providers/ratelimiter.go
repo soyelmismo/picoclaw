@@ -87,14 +87,17 @@ func (rl *RateLimiter) TryAcquire() bool {
 // Candidates with RPM=0 are unrestricted.
 // Thread-safe for concurrent reads/writes.
 type RateLimiterRegistry struct {
-	mu       sync.RWMutex
-	limiters map[string]*RateLimiter
+	mu        sync.RWMutex
+	limiters  map[string]*RateLimiter
+	lastUsed  map[string]time.Time
+	lastSweep time.Time
 }
 
 // NewRateLimiterRegistry creates an empty registry.
 func NewRateLimiterRegistry() *RateLimiterRegistry {
 	return &RateLimiterRegistry{
 		limiters: make(map[string]*RateLimiter),
+		lastUsed: make(map[string]time.Time),
 	}
 }
 
@@ -107,14 +110,19 @@ func (r *RateLimiterRegistry) Register(key string, rpm int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.limiters[key] = newRateLimiter(rpm)
+	r.lastUsed[key] = time.Now()
 }
 
 // Wait acquires a token for the given key, blocking if needed.
 // If no limiter is registered for key, returns immediately.
 func (r *RateLimiterRegistry) Wait(ctx context.Context, key string) error {
-	r.mu.RLock()
+	r.mu.Lock()
 	rl := r.limiters[key]
-	r.mu.RUnlock()
+	if rl != nil {
+		r.lastUsed[key] = time.Now()
+		r.sweep()
+	}
+	r.mu.Unlock()
 	if rl == nil {
 		return nil
 	}
@@ -124,9 +132,13 @@ func (r *RateLimiterRegistry) Wait(ctx context.Context, key string) error {
 // TryAcquire attempts to consume a token for the given key without blocking.
 // If no limiter is registered for key, it returns true.
 func (r *RateLimiterRegistry) TryAcquire(key string) bool {
-	r.mu.RLock()
+	r.mu.Lock()
 	rl := r.limiters[key]
-	r.mu.RUnlock()
+	if rl != nil {
+		r.lastUsed[key] = time.Now()
+		r.sweep()
+	}
+	r.mu.Unlock()
 	if rl == nil {
 		return true
 	}
@@ -139,6 +151,22 @@ func (r *RateLimiterRegistry) RegisterCandidates(candidates []FallbackCandidate)
 	for _, c := range candidates {
 		if c.RPM > 0 {
 			r.Register(c.StableKey(), c.RPM)
+		}
+	}
+}
+
+// sweep removes limiters that haven't been used in the last hour.
+// Throttled to run at most once per minute. Must be called with r.mu held.
+func (r *RateLimiterRegistry) sweep() {
+	now := time.Now()
+	if now.Sub(r.lastSweep) < time.Minute {
+		return
+	}
+	r.lastSweep = now
+	for key, lastUsed := range r.lastUsed {
+		if now.Sub(lastUsed) > time.Hour {
+			delete(r.limiters, key)
+			delete(r.lastUsed, key)
 		}
 	}
 }

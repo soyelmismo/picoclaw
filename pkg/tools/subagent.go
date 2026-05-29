@@ -290,6 +290,14 @@ After completing the task, provide a clear summary of what was done.`
 		task.Status = "completed"
 		task.Result = result.ForLLM
 	}
+
+	// Evict completed task from the map after 5 minutes to prevent unbounded growth.
+	taskID := task.ID
+	time.AfterFunc(5*time.Minute, func() {
+		sm.mu.Lock()
+		delete(sm.tasks, taskID)
+		sm.mu.Unlock()
+	})
 }
 
 func (sm *SubagentManager) GetTask(taskID string) (*SubagentTask, bool) {

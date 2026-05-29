@@ -20,7 +20,7 @@ import (
 
 const (
 	processHookJSONRPCVersion = "2.0"
-	processHookReadBufferSize = 1024 * 1024
+	processHookReadBufferSize = 256 * 1024
 	processHookCloseTimeout   = 2 * time.Second
 )
 

@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// lastDurationRe matches duration strings like "6h", "7d", "2w", "1m".
+var lastDurationRe = regexp.MustCompile(`^(\d+)([hdwm])$`)
+
 // ParseLastDuration parses a "last" duration string like "6h", "7d", "2w", "1m".
 // Returns the duration and nil error, or zero and error if invalid.
 func ParseLastDuration(s string) (time.Duration, error) {
@@ -16,8 +19,7 @@ func ParseLastDuration(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("empty duration")
 	}
 
-	re := regexp.MustCompile(`^(\d+)([hdwm])$`)
-	matches := re.FindStringSubmatch(s)
+	matches := lastDurationRe.FindStringSubmatch(s)
 	if matches == nil {
 		return 0, fmt.Errorf("invalid duration format: %q (use format like 6h, 7d, 2w, 1m)", s)
 	}

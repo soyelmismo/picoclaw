@@ -20,16 +20,36 @@ type Session struct {
 	Updated  time.Time           `json:"updated"`
 }
 
-type SessionManager struct {
-	sessions map[string]*Session
-	mu       sync.RWMutex
-	storage  string
+// Option is a functional option for configuring SessionManager.
+type Option func(*SessionManager)
+
+// WithMaxSessions sets the maximum number of sessions kept in memory.
+// When the limit is reached, the least recently used session is evicted.
+// If the session has a storage path, it is persisted before removal.
+// A value of 0 means no limit (default).
+func WithMaxSessions(n int) Option {
+	return func(sm *SessionManager) {
+		sm.maxSessions = n
+	}
 }
 
-func NewSessionManager(storage string) *SessionManager {
+type SessionManager struct {
+	sessions    map[string]*Session
+	mu          sync.RWMutex
+	orderMu     sync.Mutex // protects sessionOrder only
+	storage     string
+	maxSessions int
+	sessionOrder []string // LRU order: oldest at front, newest at end
+}
+
+func NewSessionManager(storage string, opts ...Option) *SessionManager {
 	sm := &SessionManager{
 		sessions: make(map[string]*Session),
 		storage:  storage,
+	}
+
+	for _, opt := range opts {
+		opt(sm)
 	}
 
 	if storage != "" {
@@ -40,12 +60,66 @@ func NewSessionManager(storage string) *SessionManager {
 	return sm
 }
 
+// touchSession updates the LRU access order for a key.
+func (sm *SessionManager) touchSession(key string) {
+	sm.orderMu.Lock()
+	defer sm.orderMu.Unlock()
+
+	// Remove existing entry if present.
+	for i, k := range sm.sessionOrder {
+		if k == key {
+			sm.sessionOrder = append(sm.sessionOrder[:i], sm.sessionOrder[i+1:]...)
+			break
+		}
+	}
+	// Append as most-recently used.
+	sm.sessionOrder = append(sm.sessionOrder, key)
+}
+
+// evictOldest persists (if storage is set) and removes the least recently
+// used session. Caller must hold sm.mu (write lock).
+func (sm *SessionManager) evictOldest() {
+	sm.orderMu.Lock()
+	if len(sm.sessionOrder) == 0 {
+		sm.orderMu.Unlock()
+		return
+	}
+
+	// Pop from front (oldest).
+	key := sm.sessionOrder[0]
+	sm.sessionOrder = sm.sessionOrder[1:]
+	sm.orderMu.Unlock()
+
+	// Persist before evicting.
+	if sm.storage != "" {
+		// Save takes its own RLock; temporarily release our write lock to
+		// avoid deadlock, then re-acquire.
+		sm.mu.Unlock()
+		_ = sm.Save(key)
+		sm.mu.Lock()
+	}
+
+	delete(sm.sessions, key)
+}
+
+// evictIfNeeded removes least-recently used sessions when the map exceeds
+// maxSessions. Caller must hold sm.mu (write lock).
+func (sm *SessionManager) evictIfNeeded() {
+	if sm.maxSessions <= 0 {
+		return
+	}
+	for len(sm.sessions) > sm.maxSessions {
+		sm.evictOldest()
+	}
+}
+
 func (sm *SessionManager) GetOrCreate(key string) *Session {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	session, ok := sm.sessions[key]
 	if ok {
+		sm.touchSession(key)
 		return session
 	}
 
@@ -56,6 +130,8 @@ func (sm *SessionManager) GetOrCreate(key string) *Session {
 		Updated:  time.Now(),
 	}
 	sm.sessions[key] = session
+	sm.touchSession(key)
+	sm.evictIfNeeded()
 
 	return session
 }
@@ -107,6 +183,9 @@ func (sm *SessionManager) AddFullMessage(sessionKey string, msg providers.Messag
 
 	session.Messages = append(session.Messages, msg)
 	session.Updated = now
+
+	sm.touchSession(sessionKey)
+	sm.evictIfNeeded()
 }
 
 func (sm *SessionManager) GetHistory(key string) []providers.Message {
@@ -120,6 +199,7 @@ func (sm *SessionManager) GetHistory(key string) []providers.Message {
 
 	history := make([]providers.Message, len(session.Messages))
 	copy(history, session.Messages)
+	sm.touchSession(key)
 	return history
 }
 
@@ -131,6 +211,7 @@ func (sm *SessionManager) GetSummary(key string) string {
 	if !ok {
 		return ""
 	}
+	sm.touchSession(key)
 	return session.Summary
 }
 
@@ -142,6 +223,7 @@ func (sm *SessionManager) SetSummary(key string, summary string) {
 	if ok {
 		session.Summary = summary
 		session.Updated = time.Now()
+		sm.touchSession(key)
 	}
 }
 
@@ -157,6 +239,7 @@ func (sm *SessionManager) TruncateHistory(key string, keepLast int) {
 	if keepLast <= 0 {
 		session.Messages = []providers.Message{}
 		session.Updated = time.Now()
+		sm.touchSession(key)
 		return
 	}
 
@@ -166,6 +249,7 @@ func (sm *SessionManager) TruncateHistory(key string, keepLast int) {
 
 	session.Messages = session.Messages[len(session.Messages)-keepLast:]
 	session.Updated = time.Now()
+	sm.touchSession(key)
 }
 
 func (sm *SessionManager) ListSessions() []string {
@@ -296,6 +380,7 @@ func (sm *SessionManager) loadSessions() error {
 		normalizeHistoryCreatedAt(session.Messages)
 
 		sm.sessions[session.Key] = &session
+		sm.sessionOrder = append(sm.sessionOrder, session.Key)
 	}
 
 	return nil
@@ -322,5 +407,6 @@ func (sm *SessionManager) SetHistory(key string, history []providers.Message) {
 		normalizeHistoryCreatedAt(msgs)
 		session.Messages = msgs
 		session.Updated = time.Now()
+		sm.touchSession(key)
 	}
 }

@@ -13,15 +13,15 @@ import (
 
 // CleanupPolicy controls how the MediaStore treats the underlying file when
 // a ref is released or expires.
-type CleanupPolicy string
+type CleanupPolicy uint8
 
 const (
 	// CleanupPolicyDeleteOnCleanup means the file is store-managed and may be
 	// deleted once the final ref for that path is gone.
-	CleanupPolicyDeleteOnCleanup CleanupPolicy = "delete_on_cleanup"
+	CleanupPolicyDeleteOnCleanup CleanupPolicy = iota
 	// CleanupPolicyForgetOnly means the store should only drop ref mappings and
 	// must never delete the underlying file.
-	CleanupPolicyForgetOnly CleanupPolicy = "forget_only"
+	CleanupPolicyForgetOnly
 )
 
 // MediaMeta holds metadata about a stored media file.
@@ -37,7 +37,7 @@ type MediaStore interface {
 	// Store registers an existing local file under the given scope.
 	// Returns a ref identifier (e.g. "media://<id>").
 	// Store does not move or copy the file; it only records the mapping.
-	// If meta.CleanupPolicy is empty, CleanupPolicyDeleteOnCleanup is assumed.
+	// If meta.CleanupPolicy is zero (unset), CleanupPolicyDeleteOnCleanup is assumed.
 	Store(localPath string, meta MediaMeta, scope string) (ref string, err error)
 
 	// Resolve returns the local file path for a given ref.
@@ -79,6 +79,7 @@ type FileMediaStore struct {
 	refToScope  map[string]string
 	refToPath   map[string]string
 	pathStates  map[string]pathRefState
+	maxRefs     int
 
 	cleanerCfg MediaCleanerConfig
 	stop       chan struct{}
@@ -95,6 +96,7 @@ func NewFileMediaStore() *FileMediaStore {
 		refToScope:  make(map[string]string),
 		refToPath:   make(map[string]string),
 		pathStates:  make(map[string]pathRefState),
+		maxRefs:     1000,
 		nowFunc:     time.Now,
 	}
 }
@@ -107,6 +109,7 @@ func NewFileMediaStoreWithCleanup(cfg MediaCleanerConfig) *FileMediaStore {
 		refToScope:  make(map[string]string),
 		refToPath:   make(map[string]string),
 		pathStates:  make(map[string]pathRefState),
+		maxRefs:     1000,
 		cleanerCfg:  cfg,
 		stop:        make(chan struct{}),
 		nowFunc:     time.Now,
@@ -124,6 +127,10 @@ func (s *FileMediaStore) Store(localPath string, meta MediaMeta, scope string) (
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.maxRefs > 0 && len(s.refs) >= s.maxRefs {
+		s.evictOldest()
+	}
 
 	s.refs[ref] = mediaEntry{path: localPath, meta: meta, storedAt: s.nowFunc()}
 	if s.scopeToRefs[scope] == nil {
@@ -267,8 +274,6 @@ func (s *FileMediaStore) CleanExpired() int {
 
 func normalizeCleanupPolicy(policy CleanupPolicy) CleanupPolicy {
 	switch policy {
-	case "", CleanupPolicyDeleteOnCleanup:
-		return CleanupPolicyDeleteOnCleanup
 	case CleanupPolicyForgetOnly:
 		return CleanupPolicyForgetOnly
 	default:
@@ -302,6 +307,43 @@ func (s *FileMediaStore) releaseRefLocked(ref, fallbackPath string) (string, boo
 	pathState.refCount--
 	s.pathStates[path] = pathState
 	return "", false
+}
+
+// evictOldest finds and removes the ref with the oldest storedAt timestamp.
+// Must be called with s.mu held.
+func (s *FileMediaStore) evictOldest() {
+	var oldestKey string
+	var oldestTime time.Time
+	for k, entry := range s.refs {
+		if oldestKey == "" || entry.storedAt.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = entry.storedAt
+		}
+	}
+	if oldestKey == "" {
+		return
+	}
+
+	// Clean up scopeToRefs for the evicted ref
+	if scope, ok := s.refToScope[oldestKey]; ok {
+		if scopeRefs, ok := s.scopeToRefs[scope]; ok {
+			delete(scopeRefs, oldestKey)
+			if len(scopeRefs) == 0 {
+				delete(s.scopeToRefs, scope)
+			}
+		}
+	}
+
+	// Release ref and delete file if eligible
+	if path, shouldDelete := s.releaseRefLocked(oldestKey, ""); shouldDelete {
+		// We're inside the lock; do the remove inline (single entry).
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logger.WarnCF("media", "evict: failed to remove file", map[string]any{
+				"path":  path,
+				"error": err.Error(),
+			})
+		}
+	}
 }
 
 // Start begins the background cleanup goroutine if cleanup is enabled.

@@ -521,25 +521,32 @@ func decodeJSONLLines(path string, decode func(line []byte) error) error {
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	var lines [][]byte
+
+	var pendingInvalidErr error
+
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		lines = append(lines, append([]byte(nil), line...))
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
+		lineCopy := append([]byte(nil), line...)
 
-	for i, line := range lines {
-		if err := decode(line); err != nil {
-			if i == len(lines)-1 && isInvalidJSON(err) {
-				return nil
+		if err := decode(lineCopy); err != nil {
+			if isInvalidJSON(err) {
+				if pendingInvalidErr != nil {
+					return pendingInvalidErr
+				}
+				pendingInvalidErr = err
+				continue
 			}
 			return err
 		}
+		if pendingInvalidErr != nil {
+			return pendingInvalidErr
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
 	}
 	return nil
 }

@@ -665,6 +665,141 @@ func TestEvolutionBridge_DraftModePrefersConfigDefaultModelName(t *testing.T) {
 	}
 }
 
+func TestEvolutionBridge_BackgroundModelUsedForDraftGeneration(t *testing.T) {
+	tmpDir := t.TempDir()
+	seedReadyRule(t, tmpDir)
+
+	provider := &capturingEvolutionDraftProvider{
+		defaultModel: "provider-default-model",
+		response:     `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
+	}
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "main-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 3,
+			},
+		},
+		Evolution: config.EvolutionConfig{
+			Enabled:         true,
+			Mode:            "draft",
+			BackgroundModel: "cheap-background-model",
+		},
+	}
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
+	defer al.Close()
+
+	if _, err := al.ProcessDirectWithChannel(
+		context.Background(),
+		"hello",
+		"session-bg-model-draft",
+		"cli",
+		"direct",
+	); err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+
+	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
+	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
+	if provider.lastModel != "cheap-background-model" {
+		t.Fatalf("lastModel = %q, want cheap-background-model", provider.lastModel)
+	}
+}
+
+func TestEvolutionBridge_BackgroundModelEmptyFallsBackToMainModel(t *testing.T) {
+	tmpDir := t.TempDir()
+	seedReadyRule(t, tmpDir)
+
+	provider := &capturingEvolutionDraftProvider{
+		defaultModel: "provider-default-model",
+		response:     `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
+	}
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "main-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 3,
+			},
+		},
+		Evolution: config.EvolutionConfig{
+			Enabled:         true,
+			Mode:            "draft",
+			BackgroundModel: "",
+		},
+	}
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
+	defer al.Close()
+
+	if _, err := al.ProcessDirectWithChannel(
+		context.Background(),
+		"hello",
+		"session-bg-model-fallback",
+		"cli",
+		"direct",
+	); err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+
+	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
+	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
+	if provider.lastModel != "main-model" {
+		t.Fatalf("lastModel = %q, want main-model (fallback)", provider.lastModel)
+	}
+}
+
+func TestEvolutionBridge_BackgroundModelUsesProviderDefaultWhenNoConfigModel(t *testing.T) {
+	tmpDir := t.TempDir()
+	seedReadyRule(t, tmpDir)
+
+	provider := &capturingEvolutionDraftProvider{
+		defaultModel: "provider-explicit-model",
+		response:     `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
+	}
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "",
+				MaxTokens:         4096,
+				MaxToolIterations: 3,
+			},
+		},
+		Evolution: config.EvolutionConfig{
+			Enabled:         true,
+			Mode:            "draft",
+			BackgroundModel: "",
+		},
+	}
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
+	defer al.Close()
+
+	if _, err := al.ProcessDirectWithChannel(
+		context.Background(),
+		"hello",
+		"session-bg-model-provider-default",
+		"cli",
+		"direct",
+	); err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+
+	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
+	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
+	if provider.lastModel != "provider-explicit-model" {
+		t.Fatalf("lastModel = %q, want provider-explicit-model", provider.lastModel)
+	}
+}
+
 func TestEvolutionBridge_DraftModeKeepsCandidateDraft(t *testing.T) {
 	tmpDir := t.TempDir()
 	seedReadyRule(t, tmpDir)

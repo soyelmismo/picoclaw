@@ -43,19 +43,19 @@ func newEvolutionBridge(
 		return nil, nil
 	}
 
-	modelID := resolvedEvolutionModelID(cfg, provider)
+	backgroundModelID := resolvedBackgroundModelID(cfg, provider)
 	judgeModelID := resolvedJudgeModelID(cfg, provider)
 	runtime, err := evolution.NewRuntime(evolution.RuntimeOptions{
 		Config: cfg.Evolution,
 		PatternClusterer: evolution.NewLLMPatternClusterer(
 			provider,
-			modelID,
+			backgroundModelID,
 			evolution.NewHeuristicPatternClusterer(cfg.Evolution.EffectiveMinTaskCount(), nil),
 			cfg.Evolution.EffectiveMinTaskCount(),
 			nil,
 		),
 		GeneratorFactory: func(workspace string) evolution.DraftGenerator {
-			return evolution.NewDraftGeneratorForWorkspace(workspace, provider, modelID)
+			return evolution.NewDraftGeneratorForWorkspace(workspace, provider, backgroundModelID)
 		},
 		SuccessJudgeFactory: func(workspace string) evolution.SuccessJudge {
 			return evolution.NewLLMTaskSuccessJudge(provider, judgeModelID, &evolution.HeuristicSuccessJudge{})
@@ -101,6 +101,18 @@ func resolvedEvolutionModelID(cfg *config.Config, provider providers.LLMProvider
 		return provider.GetDefaultModel()
 	}
 	return ""
+}
+
+// resolvedBackgroundModelID returns the model ID for background evolution tasks
+// (pattern clustering, draft generation). It prefers evolution.background_model
+// when set, falling back to the main evolution model.
+func resolvedBackgroundModelID(cfg *config.Config, provider providers.LLMProvider) string {
+	if cfg != nil {
+		if bgModel := strings.TrimSpace(cfg.Evolution.BackgroundModel); bgModel != "" {
+			return bgModel
+		}
+	}
+	return resolvedEvolutionModelID(cfg, provider)
 }
 
 // resolvedJudgeModelID returns the model ID for the LLM success judge.

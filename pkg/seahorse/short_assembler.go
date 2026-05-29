@@ -9,14 +9,17 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
+var xmlReplacer = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	"\"", "&quot;",
+	"'", "&#39;",
+)
+
 // escapeXML escapes special characters for safe inclusion in XML content.
 func escapeXML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	s = strings.ReplaceAll(s, "'", "&apos;")
-	return s
+	return xmlReplacer.Replace(s)
 }
 
 // resolvedItem is a context item resolved to its full content with token count.

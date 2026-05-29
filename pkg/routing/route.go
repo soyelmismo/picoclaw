@@ -1,8 +1,9 @@
 package routing
 
 import (
-	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -23,42 +24,78 @@ type ResolvedRoute struct {
 	MatchedBy     string
 }
 
+// cachedRoute stores a resolved route with an expiry time for TTL caching.
+type cachedRoute struct {
+	route   ResolvedRoute
+	expires time.Time
+}
+
+const routeCacheTTL = 5 * time.Second
+
 // RouteResolver determines which agent handles a message.
 type RouteResolver struct {
 	cfg *config.Config
+	// Pre-normalized identity links (canonical keys + IDs lowercased/trimmed).
+	// Computed once at construction to avoid per-message normalization.
+	normIdentityLinks map[string][]string
+	// Pre-normalized dispatch rules (When clause normalized once).
+	normDispatchRules []config.DispatchRule
+	// Route cache keyed by normalized inbound context, with short TTL.
+	routeCache sync.Map // map[string]*cachedRoute
 }
 
 // NewRouteResolver creates a new route resolver.
 func NewRouteResolver(cfg *config.Config) *RouteResolver {
-	return &RouteResolver{cfg: cfg}
+	r := &RouteResolver{
+		cfg:               cfg,
+		normIdentityLinks: preNormalizeIdentityLinks(cfg.Session.IdentityLinks),
+	}
+	if cfg.Agents.Dispatch != nil {
+		r.normDispatchRules = preNormalizeDispatchSelectors(cfg.Agents.Dispatch.Rules)
+	}
+	return r
 }
 
 // ResolveRoute determines which agent handles the message from a normalized
 // inbound context and returns the session policy that should be used to
-// allocate session state.
+// allocate session state. Results are cached for routeCacheTTL to avoid
+// repeated computation for the same inbound context.
 func (r *RouteResolver) ResolveRoute(inbound bus.InboundContext) ResolvedRoute {
+	key := routeCacheKey(inbound)
+	if v, ok := r.routeCache.Load(key); ok {
+		if cr := v.(*cachedRoute); time.Now().Before(cr.expires) {
+			return cr.route
+		}
+	}
+
 	channel := strings.ToLower(strings.TrimSpace(inbound.Channel))
 	accountID := NormalizeAccountID(inbound.Account)
-	identityLinks := cloneIdentityLinks(r.cfg.Session.IdentityLinks)
-	view := buildDispatchView(inbound, identityLinks)
+	view := buildDispatchView(inbound, r.normIdentityLinks)
 
+	var result ResolvedRoute
 	if rule := r.matchDispatchRule(view); rule != nil {
-		return ResolvedRoute{
+		result = ResolvedRoute{
 			AgentID:       r.pickAgentID(rule.Agent),
 			Channel:       channel,
 			AccountID:     accountID,
 			SessionPolicy: r.sessionPolicy(rule),
 			MatchedBy:     matchedByForRule(rule),
 		}
+	} else {
+		result = ResolvedRoute{
+			AgentID:       r.pickAgentID(r.resolveDefaultAgentID()),
+			Channel:       channel,
+			AccountID:     accountID,
+			SessionPolicy: r.sessionPolicy(nil),
+			MatchedBy:     "default",
+		}
 	}
 
-	return ResolvedRoute{
-		AgentID:       r.pickAgentID(r.resolveDefaultAgentID()),
-		Channel:       channel,
-		AccountID:     accountID,
-		SessionPolicy: r.sessionPolicy(nil),
-		MatchedBy:     "default",
-	}
+	r.routeCache.Store(key, &cachedRoute{
+		route:   result,
+		expires: time.Now().Add(routeCacheTTL),
+	})
+	return result
 }
 
 func (r *RouteResolver) pickAgentID(agentID string) string {
@@ -105,7 +142,7 @@ func (r *RouteResolver) sessionPolicy(rule *config.DispatchRule) SessionPolicy {
 	}
 	return SessionPolicy{
 		Dimensions:    normalizeSessionDimensions(dimensions),
-		IdentityLinks: cloneIdentityLinks(r.cfg.Session.IdentityLinks),
+		IdentityLinks: cloneIdentityLinks(r.normIdentityLinks),
 	}
 }
 
@@ -159,12 +196,12 @@ type dispatchView struct {
 }
 
 func (r *RouteResolver) matchDispatchRule(view dispatchView) *config.DispatchRule {
-	if r.cfg == nil || r.cfg.Agents.Dispatch == nil || len(r.cfg.Agents.Dispatch.Rules) == 0 {
+	if r.cfg == nil || len(r.normDispatchRules) == 0 {
 		return nil
 	}
 
-	for i := range r.cfg.Agents.Dispatch.Rules {
-		rule := &r.cfg.Agents.Dispatch.Rules[i]
+	for i := range r.normDispatchRules {
+		rule := &r.normDispatchRules[i]
 		if !selectorHasAnyConstraint(rule.When) {
 			continue
 		}
@@ -176,7 +213,8 @@ func (r *RouteResolver) matchDispatchRule(view dispatchView) *config.DispatchRul
 }
 
 func ruleMatchesView(rule config.DispatchRule, view dispatchView) bool {
-	when := normalizeDispatchSelector(rule.When)
+	// Selector fields are pre-normalized at construction time.
+	when := rule.When
 	if when.Channel != "" && when.Channel != view.Channel {
 		return false
 	}
@@ -224,7 +262,12 @@ func buildDispatchView(inbound bus.InboundContext, identityLinks map[string][]st
 		if spaceType == "" {
 			spaceType = "space"
 		}
-		view.Space = fmt.Sprintf("%s:%s", spaceType, strings.ToLower(spaceID))
+		var b strings.Builder
+		b.Grow(len(spaceType) + 1 + len(spaceID))
+		b.WriteString(spaceType)
+		b.WriteByte(':')
+		b.WriteString(strings.ToLower(spaceID))
+		view.Space = b.String()
 	}
 
 	if chatID := strings.TrimSpace(inbound.ChatID); chatID != "" {
@@ -232,7 +275,12 @@ func buildDispatchView(inbound bus.InboundContext, identityLinks map[string][]st
 		if chatType == "" {
 			chatType = "direct"
 		}
-		view.Chat = fmt.Sprintf("%s:%s", chatType, strings.ToLower(chatID))
+		var b strings.Builder
+		b.Grow(len(chatType) + 1 + len(chatID))
+		b.WriteString(chatType)
+		b.WriteByte(':')
+		b.WriteString(strings.ToLower(chatID))
+		view.Chat = b.String()
 	}
 
 	if topicID := strings.TrimSpace(inbound.TopicID); topicID != "" {
@@ -255,12 +303,12 @@ func normalizeDispatchSelector(selector config.DispatchSelector) config.Dispatch
 }
 
 func selectorHasAnyConstraint(selector config.DispatchSelector) bool {
-	return strings.TrimSpace(selector.Channel) != "" ||
-		strings.TrimSpace(selector.Account) != "" ||
-		strings.TrimSpace(selector.Space) != "" ||
-		strings.TrimSpace(selector.Chat) != "" ||
-		strings.TrimSpace(selector.Topic) != "" ||
-		strings.TrimSpace(selector.Sender) != "" ||
+	return selector.Channel != "" ||
+		selector.Account != "" ||
+		selector.Space != "" ||
+		selector.Chat != "" ||
+		selector.Topic != "" ||
+		selector.Sender != "" ||
 		selector.Mentioned != nil
 }
 
@@ -291,23 +339,98 @@ func resolveLinkedDispatchID(identityLinks map[string][]string, channel, peerID 
 	}
 	channel = strings.ToLower(strings.TrimSpace(channel))
 	if channel != "" {
-		candidates[fmt.Sprintf("%s:%s", channel, rawCandidate)] = true
+		var b strings.Builder
+		b.Grow(len(channel) + 1 + len(rawCandidate))
+		b.WriteString(channel)
+		b.WriteByte(':')
+		b.WriteString(rawCandidate)
+		candidates[b.String()] = true
 	}
 	if idx := strings.Index(rawCandidate, ":"); idx > 0 && idx < len(rawCandidate)-1 {
 		candidates[rawCandidate[idx+1:]] = true
 	}
 
 	for canonical, ids := range identityLinks {
-		canonicalName := strings.TrimSpace(canonical)
-		if canonicalName == "" {
+		// Identity links are pre-normalized; use canonical directly.
+		if canonical == "" {
 			continue
 		}
 		for _, id := range ids {
-			normalized := strings.ToLower(strings.TrimSpace(id))
-			if normalized != "" && candidates[normalized] {
-				return canonicalName
+			if id != "" && candidates[id] {
+				return canonical
 			}
 		}
 	}
 	return ""
+}
+
+// routeCacheKey builds a deterministic cache key from the inbound context fields
+// that affect routing. Uses strings.Builder to avoid fmt.Sprintf allocations.
+func routeCacheKey(inbound bus.InboundContext) string {
+	var b strings.Builder
+	b.WriteString("c:")
+	b.WriteString(strings.ToLower(strings.TrimSpace(inbound.Channel)))
+	b.WriteString("|a:")
+	b.WriteString(NormalizeAccountID(inbound.Account))
+	b.WriteString("|s:")
+	b.WriteString(strings.ToLower(strings.TrimSpace(inbound.SpaceType)))
+	b.WriteByte(':')
+	b.WriteString(strings.ToLower(strings.TrimSpace(inbound.SpaceID)))
+	b.WriteString("|ch:")
+	b.WriteString(strings.ToLower(strings.TrimSpace(inbound.ChatType)))
+	b.WriteByte(':')
+	b.WriteString(strings.ToLower(strings.TrimSpace(inbound.ChatID)))
+	b.WriteString("|t:")
+	b.WriteString(strings.ToLower(strings.TrimSpace(inbound.TopicID)))
+	b.WriteString("|sn:")
+	b.WriteString(strings.TrimSpace(inbound.SenderID))
+	b.WriteString("|m:")
+	if inbound.Mentioned {
+		b.WriteByte('1')
+	} else {
+		b.WriteByte('0')
+	}
+	return b.String()
+}
+
+// preNormalizeIdentityKeys lowercases and trims all keys and values in the
+// identity links map so callers don't need to normalize per message.
+func preNormalizeIdentityLinks(src map[string][]string) map[string][]string {
+	if len(src) == 0 {
+		return nil
+	}
+	norm := make(map[string][]string, len(src))
+	for canonical, ids := range src {
+		nc := strings.ToLower(strings.TrimSpace(canonical))
+		if nc == "" {
+			continue
+		}
+		dup := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if nid := strings.ToLower(strings.TrimSpace(id)); nid != "" {
+				dup = append(dup, nid)
+			}
+		}
+		if len(dup) > 0 {
+			norm[nc] = dup
+		}
+	}
+	if len(norm) == 0 {
+		return nil
+	}
+	return norm
+}
+
+// preNormalizeDispatchSelectors returns a copy of rules with every When clause
+// pre-normalized, so ruleMatchesView can skip normalization on every message.
+func preNormalizeDispatchSelectors(rules []config.DispatchRule) []config.DispatchRule {
+	if len(rules) == 0 {
+		return nil
+	}
+	out := make([]config.DispatchRule, len(rules))
+	copy(out, rules)
+	for i := range out {
+		out[i].When = normalizeDispatchSelector(out[i].When)
+	}
+	return out
 }

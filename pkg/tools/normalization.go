@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -213,13 +214,9 @@ func storeInlineDataURL(
 	}
 
 	payload = strings.NewReplacer("\n", "", "\r", "", "\t", "", " ", "").Replace(payload)
-	decoded, err := base64.StdEncoding.DecodeString(payload)
-	if err != nil {
-		return "", fmt.Sprintf("[Tool returned inline media content (%s) that could not be decoded.]", mimeType)
-	}
 
 	dir := media.TempDir()
-	if err = os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Sprintf("[Tool returned inline media content (%s) but it could not be stored.]", mimeType)
 	}
 
@@ -229,10 +226,14 @@ func storeInlineDataURL(
 		return "", fmt.Sprintf("[Tool returned inline media content (%s) but it could not be stored.]", mimeType)
 	}
 	tmpPath := tmpFile.Name()
-	if _, err = tmpFile.Write(decoded); err != nil {
+
+	// Stream base64 decode directly to file to avoid holding the full decoded
+	// payload in memory.
+	reader := base64.NewDecoder(base64.StdEncoding, strings.NewReader(payload))
+	if _, err = io.Copy(tmpFile, reader); err != nil {
 		tmpFile.Close()
 		_ = os.Remove(tmpPath)
-		return "", fmt.Sprintf("[Tool returned inline media content (%s) but it could not be stored.]", mimeType)
+		return "", fmt.Sprintf("[Tool returned inline media content (%s) that could not be decoded.]", mimeType)
 	}
 	if err = tmpFile.Close(); err != nil {
 		_ = os.Remove(tmpPath)

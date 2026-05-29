@@ -17,6 +17,7 @@ type CooldownTracker struct {
 	entries       map[string]*cooldownEntry
 	failureWindow time.Duration
 	nowFunc       func() time.Time // for testing
+	lastSweep     time.Time
 }
 
 type cooldownEntry struct {
@@ -42,6 +43,8 @@ func NewCooldownTracker() *CooldownTracker {
 func (ct *CooldownTracker) MarkFailure(provider string, reason FailoverReason) {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
+
+	ct.sweep()
 
 	now := ct.nowFunc()
 	entry := ct.getOrCreate(provider)
@@ -171,6 +174,21 @@ func (ct *CooldownTracker) getOrCreate(provider string) *cooldownEntry {
 		ct.entries[provider] = entry
 	}
 	return entry
+}
+
+// sweep removes entries whose LastFailure is older than the failure window.
+// Throttled to run at most once per minute.
+func (ct *CooldownTracker) sweep() {
+	now := ct.nowFunc()
+	if now.Sub(ct.lastSweep) < time.Minute {
+		return
+	}
+	ct.lastSweep = now
+	for key, entry := range ct.entries {
+		if !entry.LastFailure.IsZero() && now.Sub(entry.LastFailure) > ct.failureWindow {
+			delete(ct.entries, key)
+		}
+	}
 }
 
 // calculateStandardCooldown computes standard exponential backoff.

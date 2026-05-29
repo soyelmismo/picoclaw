@@ -21,11 +21,13 @@ type ToolEntry struct {
 }
 
 type ToolRegistry struct {
-	tools      map[string]*ToolEntry
-	mu         sync.RWMutex
-	version    atomic.Uint64 // incremented on Register/RegisterHidden for cache invalidation
-	mediaStore media.MediaStore
-	allowlist  map[string]struct{}
+	tools              map[string]*ToolEntry
+	mu                 sync.RWMutex
+	version            atomic.Uint64 // incremented on Register/RegisterHidden for cache invalidation
+	mediaStore         media.MediaStore
+	allowlist          map[string]struct{}
+	cachedProviderDefs []providers.ToolDefinition
+	cachedProviderVer  uint64
 }
 
 type mediaStoreAware interface {
@@ -394,9 +396,27 @@ func (r *ToolRegistry) GetDefinitions() []map[string]any {
 
 // ToProviderDefs converts tool definitions to provider-compatible format.
 // This is the format expected by LLM provider APIs.
+// Results are cached and only rebuilt when the registry version changes.
 func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
+	v := r.version.Load()
+
+	// Fast path: return cached result if version matches.
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	if r.cachedProviderDefs != nil && r.cachedProviderVer == v {
+		defs := r.cachedProviderDefs
+		r.mu.RUnlock()
+		return defs
+	}
+	r.mu.RUnlock()
+
+	// Slow path: rebuild under write lock.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if r.cachedProviderDefs != nil && r.cachedProviderVer == v {
+		return r.cachedProviderDefs
+	}
 
 	sorted := r.sortedToolNames()
 	definitions := make([]providers.ToolDefinition, 0, len(sorted))
@@ -432,6 +452,9 @@ func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
 			PromptSource: metadata.Source,
 		})
 	}
+
+	r.cachedProviderDefs = definitions
+	r.cachedProviderVer = v
 	return definitions
 }
 

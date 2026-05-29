@@ -254,31 +254,44 @@ func getPackageNameFromFile(filePath string) string {
 	return pkg
 }
 
+// isLoggerFrame returns true if the file/function should be skipped during
+// caller resolution. Inlined to avoid string allocations in the fast path.
+func isLoggerFrame(file, funcName string) bool {
+	return strings.HasSuffix(file, "/logger.go") ||
+		strings.HasSuffix(file, "/logger_3rd_party.go") ||
+		strings.HasSuffix(file, "/log.go") ||
+		strings.HasPrefix(funcName, "runtime.")
+}
+
+// getCallerSkip walks the call stack once (via runtime.Callers + CallersFrames)
+// to find the first non-logger frame and returns the skip count and package name.
+// Uses a single batched stack-walk instead of per-frame runtime.Caller calls.
 func getCallerSkip() (int, string) {
-	for i := 2; i < 15; i++ {
-		pc, file, _, ok := runtime.Caller(i)
-		if !ok {
+	// Fast path: the common case is that the actual caller is at depth 4
+	// (getCallerSkip → logMessage → {Debug|Info|…} → caller). Try it first
+	// with a single runtime.Caller call to avoid the full walk.
+	if pc, file, _, ok := runtime.Caller(4); ok {
+		if fn := runtime.FuncForPC(pc); fn != nil && !isLoggerFrame(file, fn.Name()) {
+			return 3, getPackageNameFromFile(file)
+		}
+	}
+
+	// Slow path: batched stack walk for deeper or non-standard call chains.
+	var pcs [15]uintptr
+	n := runtime.Callers(2, pcs[:])
+	frames := runtime.CallersFrames(pcs[:n])
+
+	i := 2
+	for {
+		frame, more := frames.Next()
+		if !more {
+			break
+		}
+		if isLoggerFrame(frame.File, frame.Function) {
+			i++
 			continue
 		}
-
-		fn := runtime.FuncForPC(pc)
-		if fn == nil {
-			continue
-		}
-
-		// bypass common loggers
-		if strings.HasSuffix(file, "/logger.go") ||
-			strings.HasSuffix(file, "/logger_3rd_party.go") ||
-			strings.HasSuffix(file, "/log.go") {
-			continue
-		}
-
-		funcName := fn.Name()
-		if strings.HasPrefix(funcName, "runtime.") {
-			continue
-		}
-
-		return i - 1, getPackageNameFromFile(file)
+		return i - 1, getPackageNameFromFile(frame.File)
 	}
 
 	return 3, locUnknown

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/ast"
@@ -60,6 +62,7 @@ type SkillsLoader struct {
 	workspaceSkills string // workspace skills (project-level)
 	globalSkills    string // global skills (~/.picoclaw/skills)
 	builtinSkills   string // builtin skills
+	metaCache       sync.Map // map[string]*cachedMeta — keyed by clean skill path
 }
 
 // SkillRoots returns all unique skill root directories used by this loader.
@@ -217,7 +220,25 @@ func (sl *SkillsLoader) BuildSkillsSummary() string {
 	return strings.Join(lines, "\n")
 }
 
+// cachedMeta holds parsed skill metadata alongside the file mtime at the
+// time of parsing so the cache can be invalidated when the file changes.
+type cachedMeta struct {
+	meta    *SkillMetadata
+	modTime time.Time
+}
+
 func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
+	cleanPath := filepath.Clean(skillPath)
+
+	// Check cache — only use if the file has not been modified.
+	if v, ok := sl.metaCache.Load(cleanPath); ok {
+		if cm := v.(*cachedMeta); cm != nil {
+			if info, err := os.Stat(cleanPath); err == nil && info.ModTime().Equal(cm.modTime) {
+				return cm.meta
+			}
+		}
+	}
+
 	content, err := os.ReadFile(skillPath)
 	if err != nil {
 		logger.WarnCF("skills", "Failed to read skill metadata",
@@ -226,6 +247,12 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 				"error":      err.Error(),
 			})
 		return nil
+	}
+
+	// Record mtime for cache validation.
+	var modTime time.Time
+	if info, err := os.Stat(skillPath); err == nil {
+		modTime = info.ModTime()
 	}
 
 	frontmatter, bodyContent := splitFrontmatter(string(content))
@@ -241,6 +268,7 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 	}
 
 	if frontmatter == "" {
+		sl.metaCache.Store(cleanPath, &cachedMeta{meta: metadata, modTime: modTime})
 		return metadata
 	}
 
@@ -256,6 +284,7 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 		if jsonMeta.Description != "" {
 			metadata.Description = jsonMeta.Description
 		}
+		sl.metaCache.Store(cleanPath, &cachedMeta{meta: metadata, modTime: modTime})
 		return metadata
 	}
 
@@ -267,6 +296,8 @@ func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 	if description := yamlMeta["description"]; description != "" {
 		metadata.Description = description
 	}
+
+	sl.metaCache.Store(cleanPath, &cachedMeta{meta: metadata, modTime: modTime})
 	return metadata
 }
 
